@@ -75,7 +75,10 @@ async def get_countries(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    from backend.tasks.sync_tasks import sync_regions_task
+    """
+    Пагинированный список регионов с кешированием в Redis.
+    Если регионов нет в БД — запускает Celery задачу синхронизации.
+    """
     async with Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2) as redis_client:
         try:
             cached_data = await redis_client.get(CACHE_KEY_COUNTRIES)
@@ -85,21 +88,21 @@ async def get_countries(
                 try:
                     countries = json.loads(cached_data)
                 except Exception as e:
-                    print(f"Ошибка парсинга кэша: {e}")
-                    countries = None
+                    logger.warning(f'[COUNTRIES] ошибка парсинга кеша: {e}')
 
             if not countries:
-                async with AssyncSessionLocal() as db:
-                    stmt = select(Regions).where(Regions.status == True).order_by(asc(Regions.id))
-                    result = await db.execute(stmt)
+                async with AssyncSessionLocal() as inner_db:
+                    stmt = select(Regions).where(Regions.status.is_(True)).order_by(asc(Regions.id))
+                    result = await inner_db.execute(stmt)
                     all_objs = result.scalars().all()
 
                     if not all_objs:
                         try:
+                            from backend.tasks.sync_tasks import sync_regions_task
                             loop = asyncio.get_running_loop()
                             await loop.run_in_executor(None, sync_regions_task.delay)
                         except Exception as e:
-                            print(f'Ошибка отправки задачи в селери: {e}')
+                            logger.error(f'[COUNTRIES] ошибка запуска задачи: {e}')
                     
                     countries = [
                         {
@@ -118,23 +121,18 @@ async def get_countries(
 
             start_index = 0
             if last_id is not None:
-                found = False
                 for i, country in enumerate(countries):
                     if country['id'] == last_id:
                         start_index = i + 1
-                        found = True
                         break
-                
-                if not found:
-                    return {'items': [], 'next_cursor': None, 'has_more': False}
+                else:
+                    return {"items": [], "next_cursor": None, "has_more": False}
 
             paginated_data = countries[start_index : start_index + limit]
             has_more = (start_index + limit) < len(countries)
-            
-            if not paginated_data:
-                return {'items': [], 'next_cursor': None, 'has_more': False}
-
             next_cursor = paginated_data[-1]['id'] if paginated_data and has_more else None
+
+            logger.debug(f'[COUNTRIES] страница: {len(paginated_data)} элем., has_more={has_more}, next_cursor={next_cursor}')
 
             return {
                 'items': paginated_data,
