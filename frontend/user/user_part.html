@@ -1,0 +1,84 @@
+<div id="user-layout" class="hidden">
+    <nav class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase">
+        <div id="tab-proxies" onclick="switchTab('proxies')" class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">
+            Мои прокси
+        </div>
+        <div id="tab-market"  onclick="switchTab('market')" class="flex-1 flex items-center justify-center cursor-pointer">
+            Маркет
+        </div>
+    </nav>
+
+    <div class="p-6">
+        <section id="tab-content-proxies">
+            {% include "user/tabs/proxies.html" %}
+        </section>
+
+        <section id="tab-content-market" class="hidden">
+            {% include "user/tabs/market.html" %}
+        </section>
+    </div>
+</div>
+
+<script>
+    async function initUser() {
+        await loadUserProxies();
+
+        const layout = document.getElementById('user-layout');
+        if (layout) {
+            layout.classList.remove('hidden');
+        }
+    }
+
+    function switchTab(tab) {
+        const proxiesContent = document.getElementById('tab-content-proxies');
+        const marketContent = document.getElementById('tab-content-market');
+        const tabProxies = document.getElementById('tab-proxies');
+        const tabMarket = document.getElementById('tab-market');
+
+        if (tab === 'market') {
+            proxiesContent.classList.add('hidden');
+            marketContent.classList.remove('hidden');
+            tabMarket.classList.add('bg-black', 'text-white');
+            tabProxies.classList.remove('bg-black', 'text-white');
+            if (typeof initMarketLogic === 'function') {
+                initMarketLogic();
+            }
+        } else {
+            marketContent.classList.add('hidden');
+            proxiesContent.classList.remove('hidden');
+            tabProxies.classList.add('bg-black', 'text-white');
+            tabMarket.classList.remove('bg-black', 'text-white');
+        }
+    }
+
+    // Находим элемент main, который теперь является областью скролла
+    const scrollContainer = document.querySelector('main');
+
+    scrollContainer.addEventListener('scroll', () => {
+        const marketTab = document.getElementById('tab-content-market');
+        
+        // Проверяем, существует ли вкладка и видна ли она
+        if (marketTab && !marketTab.classList.contains('hidden')) {
+            
+            // Высота контента внутри main
+            const scrollHeight = scrollContainer.scrollHeight;
+            // На сколько прокрутили сверху
+            const scrollTop = scrollContainer.scrollTop;
+            // Видимая высота контейнера
+            const clientHeight = scrollContainer.clientHeight;
+
+            // Если сумма прокрутки и видимой части почти равна полной высоте контента
+            if (scrollTop + clientHeight >= scrollHeight - 200) {
+                if (typeof loadNextMarketPage === 'function') {
+                    // Чтобы не вызывать функцию 100 раз в секунду, 
+                    // можно добавить проверку, не идет ли уже загрузка
+                    loadNextMarketPage();
+                }
+            }
+        }
+    });
+
+    async function loadUserProxies() {
+        console.log('I`m here')
+    }
+</script>

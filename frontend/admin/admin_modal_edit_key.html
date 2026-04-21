@@ -1,0 +1,85 @@
+<div id="edit-modal-overlay" class="hidden fixed inset-0 bg-black/60 z-[60] backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 flex justify-between items-center">
+            <span class="text-sm font-black uppercase">Настройки узла</span>
+            <button onclick="closeEditKeyModal()" class="text-xl font-black">✕</button>
+        </div>
+        
+        <form id="edit-key-form" class="p-6 space-y-4">
+            <input type="hidden" id="edit_key_id">
+            
+            <div>
+                <label class="block text-[10px] font-black uppercase mb-1">Название</label>
+                <input type="text" id="edit_key_name" class="w-full border-2 border-black p-3 text-sm focus:bg-zinc-50 font-bold uppercase">
+            </div>
+            
+            <div>
+                <label class="block text-[10px] font-black uppercase mb-1">ID Аккаунта (Оставь пустым, чтобы не менять)</label>
+                <input type="text" id="edit_api_id" class="w-full border-2 border-black p-3 text-sm focus:bg-zinc-50">
+            </div>
+
+            <div>
+                <label class="block text-[10px] font-black uppercase mb-1">API Ключ (Оставь пустым, чтобы не менять)</label>
+                <input type="password" id="edit_api_key" class="w-full border-2 border-black p-3 text-sm focus:bg-zinc-50">
+            </div>
+
+            <div class="flex items-center gap-3 p-3 border-2 border-black bg-zinc-50">
+                <input type="checkbox" id="edit_is_active" class="w-5 h-5 accent-black border-2 border-black">
+                <label for="edit_is_active" class="text-[10px] font-black uppercase">Ключ активен</label>
+            </div>
+
+            <button type="submit" class="w-full bg-black text-white py-4 text-sm font-black uppercase hover:invert transition-all">
+                Обновить данные
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openEditKeyModal(key) {
+        document.getElementById('edit_key_id').value = key.id;
+        document.getElementById('edit_key_name').value = key.key_name;
+        document.getElementById('edit_api_id').value = key.api_id;
+        document.getElementById('edit_api_key').value = '';
+        document.getElementById('edit_is_active').checked = key.is_active;
+        
+        document.getElementById('edit-modal-overlay').classList.remove('hidden');
+        document.addEventListener('keydown', handleEditEsc);
+    }
+
+    document.getElementById('edit-key-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('edit_key_id').value;
+        
+        const payload = {
+            key_name: document.getElementById('edit_key_name').value,
+            is_active: document.getElementById('edit_is_active').checked
+        };
+
+        // Добавляем секреты, только если они введены
+        const newId = document.getElementById('edit_api_id').value;
+        const newKey = document.getElementById('edit_api_key').value;
+        if (newId) payload.api_id = newId;
+        if (newKey) payload.key = newKey;
+
+        const response = await fetch(`/api/v1/admin/keys/${id}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-TG-Init-Data': window.Telegram.WebApp.initData
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            closeEditKeyModal();
+            loadApiKeys();
+        } else {
+            alert('Ошибка при обновлении');
+        }
+    });
+
+    function closeEditKeyModal() {
+        smartCloseModal('edit-modal-overlay');
+    }
+</script>

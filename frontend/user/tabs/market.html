@@ -1,0 +1,109 @@
+<div id="market-list">
+    <div id="countries-container" class="no-scrollbar"></div>
+    
+    <div id="market-status" class="no-scrollbar py-2 text-center text-[8px] font-black text-gray-400 uppercase no-scrollbar">
+        Загрузка данных...
+    </div>
+
+    {% include "user/modals/days_option_modal.html" %}
+</div>
+<script>
+    let marketState = {
+        nextCursor: null,
+        hasMore: true,
+        isLoading: false
+    };
+
+    async function initMarketLogic() {
+        const container = document.getElementById('countries-container');
+        if (container && container.children.length === 0) {
+            await loadNextMarketPage();
+        }
+
+        window.addEventListener('scroll', () => {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            
+            if (scrollTop + clientHeight >= scrollHeight - 100) {
+                loadNextMarketPage();
+            }
+        });
+    }
+
+    async function loadNextMarketPage() {
+        if (marketState.hasMore === false || marketState.isLoading) return;
+
+        marketState.isLoading = true;
+        const loader = document.getElementById('market-status');
+        if (loader) loader.innerText = 'ЗАГРУЗКА...';
+
+        try {
+            const params = new URLSearchParams({ limit: 20 });
+
+            if (marketState.nextCursor !== null && marketState.nextCursor !== undefined) {
+                params.append('last_id', marketState.nextCursor);
+            }
+
+            const response = await fetch(`/api/v1/user/countries?${params.toString()}`, {
+                method: 'GET',
+                headers: {
+                    'Contnt-Type': 'application/json',
+                    'X-TG-Init-Data': window.Telegram.WebApp.initData
+                }
+            });
+            
+            if (!response.ok) throw new Error('Ошибка сервера');
+            
+            const data = await response.json();
+
+            renderMarketItems(data.items || []);
+            
+            marketState.nextCursor = data.next_cursor;
+            marketState.hasMore = data.has_more;
+
+            if (loader) {
+                loader.innerText = marketState.hasMore 
+                    ? "ЛИСТАЙТЕ ВНИЗ ДЛЯ ЗАГРУЗКИ" 
+                    : "ВСЕ РЕГИОНЫ ЗАГРУЖЕНЫ";
+            }
+        } catch(e) {
+            console.error("Market Load Error:", e);
+            if (loader) loader.innerHTML = '<span class="text-red-500">ОШИБКА ЗАГРУЗКИ</span>';
+        } finally {
+            marketState.isLoading = false;
+        }
+    }
+
+    function renderMarketItems(items) {
+        const container = document.getElementById('countries-container');
+        if (!container) return;
+
+        items.forEach(item => {
+            const card = document.createElement('div');
+            card.className = "w-full mb-4 flex shrink-0 items-center justify-between p-3 border-2 border-black bg-white hover:bg-zinc-50 active:scale-[0.98] transition-all cursor-pointer box-border";
+            
+            const countryCode = (item.country_code || 'un').toLowerCase();
+            const countryName = item.country || 'Unknown';
+            const version = item.ip_version || 'IPv4';
+            const type = (item.ip_type || 'STATIC').toString().replace('_', ' ');
+            const price = item.retail_price !== undefined ? item.retail_price : '0.00';
+            card.onclick = () => openDurationModal(item.area_id);
+
+            card.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <img src="https://flagcdn.com/w40/${countryCode}.png" 
+                         class="w-6 h-4 border border-black object-cover" 
+                         onerror="this.src='https://placehold.co/40x30?text=?'">
+                    <div class="flex flex-col">
+                        <span class="text-[11px] font-black uppercase leading-none">${countryName}</span>
+                        <span class="text-[8px] font-bold text-gray-400 uppercase mt-1">
+                            ${version} • ${type}
+                        </span>
+                    </div>
+                </div>
+                <div class="text-[12px] font-black tracking-tighter">${price} USD</div>
+            `;
+            
+            container.appendChild(card);
+        });
+    }
+</script>

@@ -1,0 +1,199 @@
+<div id="duration-modal-overlay" class="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center hidden p-4 backdrop-blur-sm">
+    
+    <div class="bg-white border-[3px] border-black w-full max-w-[320px] shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative flex flex-col">
+        
+        <div class="border-b-[3px] border-black p-3 bg-white flex justify-between items-center">
+            <h3 id="modal-title" class="text-sm font-black uppercase tracking-tighter">ВЫБОР ПАРАМЕТРОВ</h3>
+            <button onclick="closeDurationModal()" class="hover:bg-black hover:text-white border-2 border-black w-8 h-8 flex items-center justify-center transition-all">
+                <span class="text-xl leading-none">×</span>
+            </button>
+        </div>
+
+        <div class="p-5 bg-white">
+            <div id="step-duration" class="space-y-4">
+                <div class="flex items-center space-x-2 mb-2">
+                    <div class="w-2 h-2 bg-black animate-pulse"></div>
+                    <label class="text-[10px] font-black uppercase">УКАЖИТЕ ПЕРИОД (ДНЕЙ):</label>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="selectDuration(30)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all active:translate-x-1 active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">30</button>
+                    <button onclick="selectDuration(90)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all active:translate-x-1 active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">90</button>
+                    <button onclick="selectDuration(180)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all active:translate-x-1 active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">180</button>
+                    <button onclick="selectDuration(360)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all active:translate-x-1 active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">360</button>
+                </div>
+            </div>
+
+            <div id="step-quantity" class="hidden space-y-5">
+                <div class="flex flex-col">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <div class="w-2 h-2 bg-black"></div>
+                        <label class="text-[10px] font-black uppercase">КОЛИЧЕСТВО ЕДИНИЦ (1-100):</label>
+                    </div>
+                    <input type="number" id="proxy-quantity" min="1" max="100" value="1"
+                           class="border-[3px] border-black p-3 font-black text-lg focus:outline-none focus:bg-zinc-100 w-full placeholder-gray-300">
+                    <p id="quantity-error" class="text-[9px] text-white bg-red-600 p-1 font-bold mt-2 hidden text-center uppercase">Ошибка: диапазон 1-100</p>
+                </div>
+                
+                <div class="space-y-2">
+                    <button onclick="confirmOptions()" class="w-full bg-black text-white border-2 border-black py-4 font-black hover:bg-white hover:text-black transition-all uppercase tracking-widest text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
+                        ПОДТВЕРДИТЬ ЗАКАЗ
+                    </button>
+                    
+                    <button onclick="goBackToDuration()" class="w-full py-2 text-center text-[10px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-gray-500 transition-colors">
+                        « НАЗАД К ВЫБОРУ СРОКА
+                    </button>
+                </div>
+            </div>
+
+            <div id="step-confirm" class="hidden space-y-5">
+                <div class="border-[3px] border-black p-4 bg-zinc-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[10px] font-black uppercase">ИТОГО К ОПЛАТЕ:</span>
+                        <div class="w-2 h-2 bg-green-500 animate-pulse"></div>
+                    </div>
+                    <div id="final-price-display" class="text-3xl font-black tracking-tighter">
+                        0.00 USD
+                    </div>
+                    <div class="text-[9px] text-gray-500 font-bold mt-2 uppercase leading-tight">
+                        Тариф: <span id="summary-duration">0</span> дней<br>
+                        Кол-во: <span id="summary-quantity">0</span> шт.
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <button onclick="executePurchase()" id="buy-btn" class="w-full bg-black text-white border-2 border-black py-4 font-black hover:bg-green-600 hover:text-white transition-all uppercase tracking-widest text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
+                        ОПЛАТИТЬ С БАЛАНСА
+                    </button>
+                    
+                    <button onclick="goBackToQuantity()" class="w-full py-2 text-center text-[10px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-gray-500 transition-colors">
+                        « ИЗМЕНИТЬ ЗАКАЗ
+                    </button>
+                </div>
+            </div>
+
+            <div id="modal-loader" class="hidden py-10 flex flex-col items-center justify-center space-y-3">
+                <div class="w-10 h-10 border-[4px] border-black border-t-transparent animate-spin"></div>
+                <span class="text-[10px] font-black animate-pulse uppercase">РАСЧЕТ СТОИМОСТИ...</span>
+            </div>
+        </div>
+        <div class="bg-black h-1 w-full"></div>
+    </div>
+</div>
+
+<script>
+    let currentSelection = {
+        areaId: null,
+        duration: null,
+        quantity: 1
+    }
+
+    function openDurationModal(areaId) {
+        currentSelection.areaId = areaId;
+        resetModal();
+        const modal = document.getElementById('duration-modal-overlay');
+        if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeDurationModal() {
+        resetModal();
+        smartCloseModal('duration-modal-overlay');
+    }
+
+    function resetModal() {
+        document.getElementById('step-duration').classList.remove('hidden');
+        document.getElementById('step-quantity').classList.add('hidden');
+        document.getElementById('modal-title').innerText = "Выберите срок";
+        document.getElementById('proxy-quantity').value = 1;
+        document.getElementById('quantity-error').classList.add('hidden');
+        document.getElementById('step-confirm').classList.add('hidden');
+        currentSelection.duration = null;
+        currentSelection.quantity = 1;
+    }
+
+    async function selectDuration(days) {
+        currentSelection.duration = days;
+
+        const stepDuration = document.getElementById('step-duration');
+        const stepQuantity = document.getElementById('step-quantity');
+        const modalTitle = document.getElementById('modal-title');
+
+        if (stepDuration && stepQuantity) {
+            stepDuration.classList.add('hidden');
+            stepQuantity.classList.remove('hidden');
+            if (modalTitle) modalTitle.innerText = `Срок: ${days} дней`;
+        }
+    }
+
+    function goBackToDuration() {
+        document.getElementById('step-duration').classList.remove('hidden');
+        document.getElementById('step-quantity').classList.add('hidden');
+        document.getElementById('modal-title').innerText = "Выберите срок";
+    }
+
+    function goBackToQuantity() {
+        document.getElementById('step-confirm').classList.add('hidden');
+        document.getElementById('step-quantity').classList.remove('hidden');
+    }
+
+    async function confirmOptions() {
+        const qtyInput = document.getElementById('proxy-quantity');
+        const errorMsg = document.getElementById('quantity-error');
+        const val = parseInt(qtyInput.value);
+
+        if (isNaN(val) || val < 1 || val > 100) {
+            qtyInput.classList.add('border-red-500');
+            errorMsg.classList.remove('hidden');
+            return;
+        }
+
+        currentSelection.quantity = val;
+        qtyInput.classList.remove('border-red-500');
+        errorMsg.classList.add('hidden');
+
+        document.getElementById('step-quantity').classList.add('hidden');
+        document.getElementById('modal-loader').classList.remove('hidden');
+
+        try {
+            const response = await fetch('/api/v1/user/calculate-price', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-TG-Init-Data': window.Telegram.WebApp.initData
+                }, 
+                body: JSON.stringify({
+                    order_type: 'BUY',
+                    days: currentSelection.duration,
+                    area_id: currentSelection.areaId,
+                    num: currentSelection.quantity
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                document.getElementById('final-price-display').innerText = `${data.order_price} USD`;
+                document.getElementById('summary-duration').innerText = currentSelection.duration;
+                document.getElementById('summary-quantity').innerText = currentSelection.quantity;
+
+                document.getElementById('modal-loader').classList.add('hidden');
+                document.getElementById('step-confirm').classList.remove('hidden');
+            } else {
+                alert("Ошибка при расчете цены: " + (data.detail || "Неизвестная ошибка"));
+                goBackToQuantity();
+                resetModal();
+            }
+        } catch (e) {
+            alert("Ошибка соединения с сервером");
+            goBackToQuantity();
+            resetModal();
+        }
+    }
+
+    async function executePurchase() {
+        const btn = document.getElementById('buy-btn');
+        btn.disabled = true;
+        btn.innerText = "ОБРАБОТКА...";
+        closeDurationModal();
+    }
+</script>

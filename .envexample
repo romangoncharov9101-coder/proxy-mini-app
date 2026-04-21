@@ -1,0 +1,10 @@
+DATABASE_URL="postgresql+asyncpg://username:password@host:port/db_name"
+SECRET_KEY="change-me-in-production-secret-key"
+BOT_TOKEN=
+ADMIN_TELEGRAM_IDS=[]
+IPFOXY_API_BASE="https://apis.ipfoxy.com"
+ALLOWED_ORIGINS=["*"]
+ENVIRONMENT="production"
+REDIS_URL = "redis://127.0.0.1:6379/0"
+
+ENCRYPTION_KEY="gV4xzTpwd0aFtcO8VUtHmq_ibknuAvhu5xqobtZNjwI="

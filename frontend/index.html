@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<nav id="nav-bar" class="flex bg-white font-bold">
+    </nav>
+
+<div id="main-view">
+    <div id="page-loader" class="text-center text-xs animate-pulse">
+        СИНХРОНИЗАЦИЯ ДАННЫХ...
+    </div>
+    {% include "user/user_part.html" %}
+    {% include "admin/admin_part.html" %}
+</div>
+
+<script>
+    function renderInterface(user) {
+        document.getElementById('page-loader').classList.add('hidden');
+
+        if (user.role === 'admin') {
+            document.getElementById('admin-layout').classList.remove('hidden');
+            if (typeof initAdmin === 'function') initAdmin();
+        } else {
+            document.getElementById('user-layout').classList.remove('hidden');
+            if (typeof initUser === 'function') initUser();
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === "Escape") {
+            const openModals = document.querySelectorAll('[id$="modal-overlay"]:not(.hidden)');
+            openModals.forEach(modal => {
+                smartCloseModal(modal.id);
+            });
+        }
+    });
+
+    function smartCloseModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+
+        modal.classList.add('hidden');
+        
+        const form = modal.querySelector('form');
+        if (form) form.reset();
+    }
+
+    window.addEventListener('click', (e) => {
+        if (e.target.id && e.target.id.includes('modal-overlay')) {
+            smartCloseModal(e.target.id);
+        }
+    });
+</script>
+{% endblock %}
