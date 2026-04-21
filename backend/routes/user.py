@@ -1,7 +1,7 @@
 import json
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -33,40 +33,39 @@ async def get_me(
     Возвращает профиль текущего пользователя.
     Если к аккаунту привязан API ключ — обновляет баланс
     """
-    await db.refresh(user, ['api_key'])
-    current_balance = 0
-    if user.api_key:
-        needs_refresh = (
-            user.api_key.balance is None or 
-            user.api_key.balance == 0 or 
-            user.api_key.last_checked is None or
-            (datetime.now() - user.api_key.last_checked.replace(tzinfo=None)) > timedelta(minutes=5)
-        )
-        if needs_refresh:
-            try:
-                service = IPFoxyService(
-                    api_token=decrypt_data(user.api_key.key),
-                    api_id=user.api_key.api_id
-                )
-                
-                real_balance = await service.get_balance()
-                
-                user.api_key.balance = real_balance
-                user.api_key.last_checked = func.now()
-                
-                await db.commit()
-                current_balance = real_balance
-                
-            except Exception as e:
-                print(f"Failed to refresh balance for key {user.api_key.id}: {e}")
-                current_balance = user.api_key.balance or 0
-        else:
-            current_balance = user.api_key.balance
+    current_balance = Decimal('0.00')
+
+    if user.api_key_id:
+        await db.refresh(user)
+        stmt = select(ApiKey).where(ApiKey.id == user.api_key_id, ApiKey.is_active.is_(True))
+        res = await db.execute(stmt)
+        api_key = res.scalar_one_or_none()
+
+        if api_key:
+            needs_refresh = (
+                api_key.balance is None
+                or api_key.last_checked is None
+                or (datetime.now(timezone.now() - api_key.last_checked.replace(tzinfo=None)) > timedelta(minutes=60))
+            )
+            if needs_refresh:
+                logger.info(f'[ME] {user.telegram_id} - Обновляем баланс key_id={api_key.api_id}')
+                try:
+                    service = IPFoxyService.get_service_by_key_obj(api_key)
+                    real_balance = await service.get_balance()
+                    api_key.balance = real_balance
+                    api_key.last_checked = func.now()
+                    await db.commit()
+                    current_balance = real_balance
+                except Exception as exc:
+                    current_balance = api_key.balance or Decimal('0.00')
+            else:
+                current_balance = api_key.balance or Decimal('0.00')
     return {
         'first_name': user.first_name,
         'username': user.username,
         'balance': current_balance,
-        'role': user.role
+        'role': user.role,
+        'api_key_id': user.api_key.api_id
     }
 
 @router.get('/countries', response_model=schemas.CountriesResponse)
