@@ -58,20 +58,20 @@ class IPFoxyService:
         return cls._from_key_obj(api_key), api_key
     
     @classmethod
-    async def get_service_by_key_id(cls, db: AsyncSession, key_id: int) -> Optional[tuple['IPFoxyService', ApiKey]]:
+    async def get_service_by_key_id(cls, db: AsyncSession, api_id: int) -> Optional[tuple['IPFoxyService', ApiKey]]:
         """
         Возвращает (IPFoxyService, ApiKey) по id ключа.
         Используется в Celery воркерах.
         """
-        stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.is_active.is_(True))
+        stmt = select(ApiKey).where(ApiKey.id == api_id, ApiKey.is_active.is_(True))
         result = await db.execute(stmt)
         api_key = result.scalar_one_or_none()
 
         if not api_key:
-            logger.warning(f'[KEY_LOOKUP] key_id={key_id} - не найден или не активен')
+            logger.warning(f'[KEY_LOOKUP] key_id={api_id} - не найден или не активен')
             return None
         
-        logger.debug(f'[KEY_LOOKUP] key_id={key_id}, name={api_key.key_name} - OK')
+        logger.debug(f'[KEY_LOOKUP] key_id={api_id}, name={api_key.key_name} - OK')
         return cls._from_key_obj(api_key), api_key
     
     @classmethod
@@ -84,22 +84,22 @@ class IPFoxyService:
         return cls(
             api_token=decrypt_data(api_key.key),
             api_id=api_key.api_id,
-            key_id=api_key.id
+            key_name=api_key.key_name
         )
     
     async def check_connection(self) -> bool:
         """Проверят что ключ валидный и API отвечает. Используется в Celery"""
-        logger.debug(f'[CHECK] key_id={self.key_name} - проверка соединения')
+        logger.debug(f'[CHECK] key_name={self.key_name} - проверка соединения')
         try:
             data = await self._make_request('GET', '/ip/open-api/account-info')
             ok = data.get('code') in (0, 200) and 'data' in data
             if ok:
-                logger.info(f'[CHECK] key_id={self.key_name} - соединение ОК')
+                logger.info(f'[CHECK] key_name={self.key_name} - соединение ОК')
             else:
-                logger.warning(f'[CHECK] key_id={self.key_name} - ответ API: code={data.get('code')}')
+                logger.warning(f'[CHECK] key_name={self.key_name} - ответ API: code={data.get('code')}')
             return ok
         except Exception as exc:
-            logger.error(f'[CHECK] key_id={self.key_name} - исключение: {exc}')
+            logger.error(f'[CHECK] key_name={self.key_name} - исключение: {exc}')
             return False
 
     async def _make_request(self, method: str, endpoint: str, params: Optional[dict] = None, json_data: Optional[dict] = None) -> dict[str, Any]:
@@ -114,7 +114,7 @@ class IPFoxyService:
             'Content-Type': 'application/json',
         }
         clean_params = {k: v for k, v in (params or {}).items() if v is not None} or None
-        logger.debug(f'[REQUEST] key_id={self.key_name} {method} {endpoint} {params} {json_data}')
+        logger.debug(f'[REQUEST] key_name={self.key_name} {method} {endpoint} {params} {json_data}')
         t_start = time.monotonic()
 
         async with httpx.AsyncClient(timeout=20) as client:
@@ -134,31 +134,31 @@ class IPFoxyService:
                 api_msg = data.get('msg', '')
 
                 if data.get('code') in [0, 200]:
-                    logger.info(f'[RESPONSE] key_id={self.key_name} {method} {endpoint} - code={api_code} dur={duration_ms}')
+                    logger.info(f'[RESPONSE] key_name={self.key_name} {method} {endpoint} - code={api_code} dur={duration_ms}')
                 else:
-                    logger.warning(f'[RESPONSE] key_id={self.key_name} {method} {endpoint} - API error code={api_code} msg={api_msg} dur={duration_ms}')
+                    logger.warning(f'[RESPONSE] key_name={self.key_name} {method} {endpoint} - API error code={api_code} msg={api_msg} dur={duration_ms}')
                 return data
             
             except httpx.HTTPStatusError as exc:
                 duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[HTTP_ERROR] key_id={self.key_name} {method} {endpoint} — status={exc.response.status_code} dur={duration_ms} body={exc.response.text}')
+                logger.error(f'[HTTP_ERROR] key_name={self.key_name} {method} {endpoint} — status={exc.response.status_code} dur={duration_ms} body={exc.response.text}')
                 return {"code": exc.response.status_code, "msg": "HTTP error", "data": {}}
  
             except httpx.TimeoutException:
                 duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[TIMEOUT] key_id={self.key_name} {method} {endpoint} — dur={duration_ms}')
+                logger.error(f'[TIMEOUT] key_name={self.key_name} {method} {endpoint} — dur={duration_ms}')
                 return {"code": 408, "msg": "Request timeout", "data": {}}
  
             except Exception as exc:
                 duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[UNEXPECTED] key_id={self.key_name} {method} {endpoint} — {exc} dur={duration_ms}')
+                logger.error(f'[UNEXPECTED] key_name={self.key_name} {method} {endpoint} — {exc} dur={duration_ms}')
                 return {"code": 500, "msg": str(exc), "data": {}}
             
     async def get_balance(self) -> Decimal:
         """ Получить баланс аккаунта IPFoxy"""
         data = await self._make_request('GET', '/ip/open-api/account-info')
         balance = data.get('data', {}).get('total_balance', '0.00')
-        logger.info(f'[BALANCE] key_id={self.key_name} - {Decimal(str(balance))} USD')
+        logger.info(f'[BALANCE] key_name={self.key_name} - {Decimal(str(balance))} USD')
         return Decimal(str(balance))
     
     async def get_proxies_list(self, page: int = 1, page_size: int = 20) -> list[dict]:
@@ -169,7 +169,7 @@ class IPFoxyService:
             params={'page': page, 'page_size': page_size}
         )
         list = data.get('data', {}).get('list', [])
-        logger.info(f'[PROXY_LIST] key_id={self.key_name} — {len(list)} прокси (стр. {page})')
+        logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(list)} прокси (стр. {page})')
         return list
     
     async def renew_proxy(self, proxy_ids: str, days: int = 30) -> dict:
@@ -189,9 +189,9 @@ class IPFoxyService:
         )
         order_id = data.get('data', {}).get('order_id')
         if order_id:
-            logger.info(f'[PURCHASE] key_id={self.key_name} — order_id={order_id}')
+            logger.info(f'[PURCHASE] key_name={self.key_name} — order_id={order_id}')
         else:
-            logger.error(f'[PURCHASE] key_id={self.key_name} — order_id не получен. Ответ: {data}')
+            logger.error(f'[PURCHASE] key_name={self.key_name} — order_id не получен. Ответ: {data}')
         return order_id
     
     async def get_order_information(self, order_id) -> dict:
@@ -220,7 +220,7 @@ class IPFoxyService:
         )
         raw_price = data.get('data', {}).get('order price', 0)
         price = _safe_decimal(raw_price)
-        logger.info(f'[ORDER_PRICE] key_id={self.key_name} - {price} USD (type={order_type} area_id={area_id} num={num} days={days})')
+        logger.info(f'[ORDER_PRICE] key_name={self.key_name} - {price} USD (type={order_type} area_id={area_id} num={num} days={days})')
         return price
 
     async def get_regions(self) -> list[dict]:
@@ -234,5 +234,5 @@ class IPFoxyService:
             '/ip/open-api/area-list',
         )
         regions: list = data.get('data', [])
-        logger.info(f'[REGIONS] key_id={self.key_name} - {len(regions)} регионов')
+        logger.info(f'[REGIONS] key_name={self.key_name} - {len(regions)} регионов')
         return regions

@@ -1,0 +1,85 @@
+<!-- МОДАЛ: Добавить пользователя в whitelist -->
+<div id="add-user-modal" class="modal-overlay hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 flex justify-between items-center">
+            <span class="text-[10px] font-black tracking-widest">ДОБАВИТЬ ПОЛЬЗОВАТЕЛЯ</span>
+            <button onclick="smartCloseModal('add-user-modal')" class="text-xl font-black">×</button>
+        </div>
+        <form id="add-user-form" class="p-5 space-y-4">
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Telegram ID *</label>
+                <input type="number" id="new_user_tg_id" required placeholder="123456789"
+                    class="w-full border-2 border-black p-3 text-[10px] focus:outline-none focus:bg-zinc-50">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Роль</label>
+                <select id="new_user_role" class="w-full border-2 border-black p-3 text-[10px] font-bold focus:outline-none bg-white uppercase">
+                    <option value="user">USER</option>
+                    <option value="admin">ADMIN</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">API Ключ</label>
+                <select id="new_user_key_id" class="w-full border-2 border-black p-3 text-[10px] font-bold focus:outline-none bg-white uppercase">
+                    <option value="">— не назначать —</option>
+                </select>
+            </div>
+            <div id="add-user-error" class="hidden text-[9px] font-black text-red-500 border-2 border-red-500 p-2"></div>
+            <button type="submit" class="w-full bg-black text-white py-3 text-[10px] font-black uppercase hover:invert transition-all">
+                ДОБАВИТЬ В СИСТЕМУ
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+async function openAddUserModal() {
+    document.getElementById('add-user-error').classList.add('hidden');
+    /* Загружаем ключи для выпадающего списка */
+    const sel = document.getElementById('new_user_key_id');
+    sel.innerHTML = '<option value="">— не назначать —</option>';
+    try {
+        const res = await fetch('/api/v1/admin/keys', { headers: { 'X-TG-Init-Data': TG_INIT } });
+        const keys = await res.json();
+        keys.filter(k => k.is_active).forEach(k => {
+            const opt = document.createElement('option');
+            opt.value = k.id; opt.innerText = k.key_name;
+            sel.appendChild(opt);
+        });
+    } catch(e) {}
+    document.getElementById('add-user-modal').classList.remove('hidden');
+}
+
+document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('add-user-error');
+    errEl.classList.add('hidden');
+
+    const tgId  = parseInt(document.getElementById('new_user_tg_id').value);
+    const role  = document.getElementById('new_user_role').value;
+    const keyId = document.getElementById('new_user_key_id').value;
+
+    try {
+        /* 1. Добавляем в whitelist */
+        const wlRes = await fetch('/api/v1/admin/whitelist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ telegram_id: tgId, role })
+        });
+        const wlData = await wlRes.json();
+        if (!wlRes.ok) throw new Error(wlData.detail || 'Ошибка добавления в whitelist');
+
+        /* 2. Если выбран ключ — назначаем */
+        if (keyId) await assignKeyByTgId(parseInt(keyId), tgId);
+
+        smartCloseModal('add-user-modal');
+        /* Сбрасываем список */
+        adminUsersState = { nextCursor: null, hasMore: true, isLoading: false };
+        document.getElementById('admin-users-list').innerHTML = '';
+        loadNextUsersPage();
+    } catch(err) {
+        errEl.innerText = err.message;
+        errEl.classList.remove('hidden');
+    }
+});
+</script>

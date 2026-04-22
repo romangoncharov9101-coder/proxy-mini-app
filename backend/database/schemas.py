@@ -10,7 +10,7 @@ class UserProfileResponse(BaseModel):
     username: str | None
     balance: Decimal
     role: UserRole
-    api_key_id: Optional[str] = None
+    api_key_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -21,7 +21,7 @@ class UserListItem(BaseModel):
     username: Optional[str]
     first_name: Optional[str]
     role: UserRole
-    api_key_id: Optional[str]
+    api_key_id: Optional[int]
     api_key_name: Optional[str] = None
     created_at: datetime
 
@@ -68,6 +68,11 @@ class ApiKeyResponse(BaseModel):
         from_attributes = True
 
 class ApiKeyStatsResponse(BaseModel):
+    id: int
+    api_id: str
+    key_name: str
+    is_active: bool
+    balance: float
     proxy_count: int = 0
     user_count: int = 0
 

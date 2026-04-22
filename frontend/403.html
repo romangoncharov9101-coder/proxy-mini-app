@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>PRX_CORE — ДОСТУП ЗАПРЕЩЁН</title>
+    <style>
+        body { margin:0; background:#fff; font-family: monospace; overflow:hidden; height:100%; width:100%; position:fixed; }
+    </style>
+</head>
+<body class="bg-white text-black uppercase selection:bg-black selection:text-white">
+<div class="max-w-md mx-auto h-screen flex flex-col border-x border-black">
+
+    <div class="border-b-4 border-black bg-black text-white p-4 flex justify-between items-center">
+        <span class="text-[10px] font-black tracking-widest">PRX_CORE</span>
+        <span class="text-[10px] font-black">SYS://ACCESS_CONTROL</span>
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-center p-8 space-y-6">
+        <div class="w-full border-4 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] space-y-4">
+            <div class="flex items-center gap-3">
+                <div class="w-3 h-3 bg-black animate-pulse"></div>
+                <span class="text-[9px] font-black text-gray-400 tracking-widest">ОШИБКА АВТОРИЗАЦИИ</span>
+            </div>
+            <div class="text-5xl font-black tracking-tighter border-b-2 border-black pb-4">403</div>
+            <div class="space-y-1">
+                <p class="text-sm font-black">ДОСТУП ЗАПРЕЩЁН</p>
+                <p class="text-[10px] text-gray-500 font-bold leading-relaxed normal-case">
+                    Ваш идентификатор не найден в белом списке системы.<br>
+                    Обратитесь к администратору для получения доступа.
+                </p>
+            </div>
+        </div>
+
+        <div class="w-full space-y-2 text-[9px] font-black text-gray-300 border-t-2 border-gray-100 pt-4">
+            <div class="flex justify-between"><span>PROTOCOL</span><span>TELEGRAM_WEBAPP/2.0</span></div>
+            <div class="flex justify-between"><span>STATUS</span><span class="text-red-500">FORBIDDEN</span></div>
+            <div class="flex justify-between"><span>REASON</span><span>NOT_IN_WHITELIST</span></div>
+        </div>
+    </div>
+
+    <div class="border-t-2 border-black p-4 bg-zinc-50">
+        <p class="text-[9px] font-bold text-gray-400 text-center">
+            ОТКРОЙТЕ ПРИЛОЖЕНИЕ ЧЕРЕЗ TELEGRAM-БОТ
+        </p>
+    </div>
+
+</div>
+</body>
+</html>

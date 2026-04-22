@@ -1,53 +1,53 @@
 {% extends "base.html" %}
-
 {% block content %}
-<nav id="nav-bar" class="flex bg-white font-bold">
-    </nav>
 
-<div id="main-view">
-    <div id="page-loader" class="text-center text-xs animate-pulse">
-        СИНХРОНИЗАЦИЯ ДАННЫХ...
-    </div>
-    {% include "user/user_part.html" %}
-    {% include "admin/admin_part.html" %}
+<div id="page-loader" class="flex flex-col items-center justify-center py-20 space-y-3">
+    <div class="w-8 h-8 border-[3px] border-black border-t-transparent animate-spin"></div>
+    <span class="text-[9px] font-black animate-pulse tracking-widest">СИНХРОНИЗАЦИЯ ДАННЫХ...</span>
 </div>
 
+{% include "user/user_part.html" %}
+{% include "admin/admin_part.html" %}
+
 <script>
-    function renderInterface(user) {
-        document.getElementById('page-loader').classList.add('hidden');
+function renderInterface(user) {
+    document.getElementById('page-loader').classList.add('hidden');
 
-        if (user.role === 'admin') {
-            document.getElementById('admin-layout').classList.remove('hidden');
-            if (typeof initAdmin === 'function') initAdmin();
-        } else {
-            document.getElementById('user-layout').classList.remove('hidden');
-            if (typeof initUser === 'function') initUser();
-        }
+    if (user.role === 'admin') {
+        document.getElementById('admin-layout').classList.remove('hidden');
+        if (typeof initAdmin === 'function') initAdmin();
+    } else {
+        document.getElementById('user-layout').classList.remove('hidden');
+        if (typeof initUser === 'function') initUser();
     }
+}
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === "Escape") {
-            const openModals = document.querySelectorAll('[id$="modal-overlay"]:not(.hidden)');
-            openModals.forEach(modal => {
-                smartCloseModal(modal.id);
-            });
-        }
-    });
+document.getElementById('main-scroll').addEventListener('scroll', function() {
+    const sc = this;
+    const nearBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 220;
+    if (!nearBottom) return;
 
-    function smartCloseModal(modalId) {
-        const modal = document.getElementById(modalId);
-        if (!modal) return;
-
-        modal.classList.add('hidden');
-        
-        const form = modal.querySelector('form');
-        if (form) form.reset();
+    const marketTab = document.getElementById('tab-content-market');
+    if (marketTab && !marketTab.classList.contains('hidden')) {
+        if (typeof loadNextMarketPage === 'function') loadNextMarketPage();
     }
-
-    window.addEventListener('click', (e) => {
-        if (e.target.id && e.target.id.includes('modal-overlay')) {
-            smartCloseModal(e.target.id);
-        }
-    });
+    const proxyTab = document.getElementById('tab-content-proxies');
+    if (proxyTab && !proxyTab.classList.contains('hidden')) {
+        if (typeof loadNextProxyPage === 'function') loadNextProxyPage();
+    }
+    const adminProxies = document.getElementById('admin-proxies-section');
+    if (adminProxies && !adminProxies.classList.contains('hidden')) {
+        if (typeof loadNextAdminProxiesPage === 'function') loadNextAdminProxiesPage();
+    }
+    const adminTx = document.getElementById('admin-tx-section');
+    if (adminTx && !adminTx.classList.contains('hidden')) {
+        if (typeof loadNextAdminTxPage === 'function') loadNextAdminTxPage();
+    }
+    const adminUsers = document.getElementById('admin-users-list');
+    if (adminUsers && document.getElementById('admin-keys-section') && 
+        !document.getElementById('admin-keys-section').classList.contains('hidden')) {
+        if (typeof loadNextUsersPage === 'function') loadNextUsersPage();
+    }
+});
 </script>
 {% endblock %}

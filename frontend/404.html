@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>PRX_CORE — НЕ НАЙДЕНО</title>
+    <style>
+        body { margin:0; background:#fff; font-family:monospace; overflow:hidden; height:100%; width:100%; position:fixed; }
+    </style>
+</head>
+<body class="bg-white text-black uppercase selection:bg-black selection:text-white">
+<div class="max-w-md mx-auto h-screen flex flex-col border-x border-black">
+
+    <div class="border-b-4 border-black bg-black text-white p-4 flex justify-between items-center">
+        <span class="text-[10px] font-black tracking-widest">PRX_CORE</span>
+        <span class="text-[10px] font-black">SYS://ROUTING</span>
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-center p-8 space-y-6">
+        <div class="w-full border-4 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] space-y-4">
+            <div class="flex items-center gap-3">
+                <div class="w-3 h-3 bg-zinc-400 animate-pulse"></div>
+                <span class="text-[9px] font-black text-gray-400 tracking-widest">ОШИБКА МАРШРУТИЗАЦИИ</span>
+            </div>
+            <div class="text-5xl font-black tracking-tighter border-b-2 border-black pb-4">404</div>
+            <div class="space-y-1">
+                <p class="text-sm font-black">РЕСУРС НЕ НАЙДЕН</p>
+                <p class="text-[10px] text-gray-500 font-bold leading-relaxed normal-case">
+                    Запрошенный ресурс не существует или был перемещён.
+                </p>
+            </div>
+        </div>
+        <button onclick="window.location.href='/'" class="w-full border-2 border-black py-3 text-[10px] font-black hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
+            ← ВЕРНУТЬСЯ НА ГЛАВНУЮ
+        </button>
+    </div>
+
+</div>
+</body>
+</html>

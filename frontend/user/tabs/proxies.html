@@ -1,0 +1,228 @@
+<div id="user-proxies-container" class="space-y-3"></div>
+<div id="user-proxies-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
+
+<!-- ══ МОДАЛ: детали прокси ══════════════════════════════════════════ -->
+<div id="proxy-detail-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[80] flex items-end justify-center">
+    <div class="bg-white border-t-4 border-black w-full max-w-md shadow-[0_-8px_0px_0px_rgba(0,0,0,1)] max-h-[85vh] flex flex-col">
+
+        <div class="bg-black text-white px-4 py-3 flex justify-between items-center shrink-0">
+            <span class="text-[10px] font-black tracking-widest">ИНФОРМАЦИЯ О ПРОКСИ</span>
+            <button onclick="smartCloseModal('proxy-detail-modal')" class="text-xl font-black leading-none">×</button>
+        </div>
+
+        <div id="proxy-detail-body" class="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1">
+            <div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+/* ═══════════ STATE ═══════════ */
+let proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
+
+/* ═══════════ INIT ═══════════ */
+async function initProxiesTab() {
+    proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
+    document.getElementById('user-proxies-container').innerHTML = '';
+    await loadNextProxyPage();
+}
+
+/* ═══════════ LAZY LOAD ═══════════ */
+async function loadNextProxyPage() {
+    if (!proxyListState.hasMore || proxyListState.isLoading) return;
+    proxyListState.isLoading = true;
+
+    const status = document.getElementById('user-proxies-status');
+    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+
+    try {
+        const params = new URLSearchParams({ limit: 20 });
+        if (proxyListState.nextCursor != null) params.append('last_id', proxyListState.nextCursor);
+
+        const res = await fetch(`/api/v1/user/proxies?${params}`, {
+            headers: { 'X-TG-Init-Data': TG_INIT }
+        });
+
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+
+        renderProxyItems(data.items || []);
+        proxyListState.nextCursor = data.next_cursor;
+        proxyListState.hasMore    = data.has_more;
+
+        if (data.items.length === 0 && !proxyListState.nextCursor) {
+            status.innerHTML = '<span class="text-gray-300">НЕТ ПРОКСИ — КУПИТЕ НА ВКЛАДКЕ МАРКЕТ</span>';
+        } else {
+            status.innerText = proxyListState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : 'ВСЕ ПРОКСИ ЗАГРУЖЕНЫ';
+        }
+    } catch(e) {
+        status.innerHTML = '<span class="text-red-500">ОШИБКА ЗАГРУЗКИ</span>';
+    } finally {
+        proxyListState.isLoading = false;
+    }
+}
+
+/* ═══════════ RENDER LIST ═══════════ */
+function renderProxyItems(items) {
+    const container = document.getElementById('user-proxies-container');
+    items.forEach(p => {
+        const isActive = p.is_active;
+        const expires  = p.expires_at ? new Date(p.expires_at).toLocaleDateString('ru-RU') : '—';
+        const daysLeft = p.expires_at ? Math.ceil((new Date(p.expires_at) - Date.now()) / 86400000) : null;
+        const urgentCls = daysLeft !== null && daysLeft <= 3 ? 'border-red-500' : 'border-black';
+        const dot = isActive ? 'bg-green-500' : 'bg-zinc-300';
+
+        const el = document.createElement('div');
+        el.className = `border-2 ${urgentCls} p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer active:scale-[0.99] transition-all`;
+        el.onclick = () => openProxyDetail(p.id);
+        el.innerHTML = `
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2 min-w-0">
+                    <div class="w-2 h-2 ${dot} border border-black shrink-0"></div>
+                    <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
+                </div>
+                <span class="text-[9px] font-black text-gray-400 shrink-0 ml-2">${(p.ip_type||'').replace('_',' ')}</span>
+            </div>
+            <div class="flex justify-between mt-1 text-[9px] font-bold text-gray-400">
+                <span>${(p.country_code||'—').toUpperCase()} • ${p.type||'socks5'}</span>
+                <span class="${daysLeft !== null && daysLeft <= 3 ? 'text-red-500' : ''}">ДО: ${expires}${daysLeft !== null ? ' ('+daysLeft+'д)' : ''}</span>
+            </div>
+        `;
+        container.appendChild(el);
+    });
+}
+
+/* ═══════════ DETAIL MODAL ═══════════ */
+async function openProxyDetail(proxyId) {
+    const modal = document.getElementById('proxy-detail-modal');
+    const body  = document.getElementById('proxy-detail-body');
+    body.innerHTML = '<div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>';
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/v1/user/proxies/${proxyId}`, {
+            headers: { 'X-TG-Init-Data': TG_INIT }
+        });
+        if (!res.ok) throw new Error(res.status);
+        const p = await res.json();
+        renderProxyDetail(body, p);
+    } catch(e) {
+        body.innerHTML = '<div class="text-red-500 text-[10px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ ДАННЫХ</div>';
+    }
+}
+
+function renderProxyDetail(container, p) {
+    const expires = p.expires_at ? new Date(p.expires_at).toLocaleString('ru-RU') : '—';
+    const bought  = p.purchased_at ? new Date(p.purchased_at).toLocaleString('ru-RU') : '—';
+    const isActive = p.is_active;
+
+    container.innerHTML = `
+        <!-- Статус и хост -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-2">
+            <div class="flex justify-between items-center">
+                <span class="text-[10px] font-black">СОЕДИНЕНИЕ</span>
+                <div class="flex items-center gap-1">
+                    <div class="w-2 h-2 ${isActive ? 'bg-green-500' : 'bg-zinc-300'} border border-black"></div>
+                    <span class="text-[9px] font-bold">${isActive ? 'АКТИВЕН' : 'НЕАКТИВЕН'}</span>
+                </div>
+            </div>
+            <div class="font-black text-sm tracking-tight">${p.host}:${p.port}</div>
+            <div class="text-[9px] text-gray-400 font-bold">${p.type||'SOCKS5'} • ${p.ip_version||'IPv4'} • ${(p.ip_type||'').replace('_',' ')}</div>
+        </div>
+
+        <!-- Учётные данные -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            <div class="text-[9px] font-black text-gray-400 mb-2">УЧЁТНЫЕ ДАННЫЕ</div>
+            <div class="space-y-1">
+                <div class="flex justify-between items-center">
+                    <span class="text-[9px] font-bold text-gray-400">ЛОГИН</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black font-mono normal-case">${p.username||'—'}</span>
+                        ${p.username ? `<button onclick="copyText('${p.username}')" class="text-[8px] border border-black px-1 py-0.5 hover:bg-black hover:text-white transition-all">КОПИР</button>` : ''}
+                    </div>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-[9px] font-bold text-gray-400">ПАРОЛЬ</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black font-mono normal-case" id="pwd-${p.id}">••••••••</span>
+                        <button onclick="togglePwd(${p.id},'${p.password||''}')" class="text-[8px] border border-black px-1 py-0.5 hover:bg-black hover:text-white transition-all">ПОКАЗ</button>
+                        ${p.password ? `<button onclick="copyText('${p.password}')" class="text-[8px] border border-black px-1 py-0.5 hover:bg-black hover:text-white transition-all">КОПИР</button>` : ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Строка подключения -->
+        <div class="border-2 border-black p-3">
+            <div class="text-[9px] font-black text-gray-400 mb-1">СТРОКА ПОДКЛЮЧЕНИЯ</div>
+            <div class="text-[9px] font-mono normal-case bg-zinc-50 p-2 break-all">${p.type||'socks5'}://${p.username||''}:${p.password||''}@${p.host}:${p.port}</div>
+            <button onclick="copyText('${p.type||'socks5'}://${p.username||''}:${p.password||''}@${p.host}:${p.port}')" class="mt-2 w-full border-2 border-black py-2 text-[9px] font-black hover:bg-black hover:text-white transition-all">
+                КОПИРОВАТЬ СТРОКУ
+            </button>
+        </div>
+
+        <!-- Даты -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="text-[9px] font-black text-gray-400 mb-1">ВРЕМЕННЫЕ МЕТКИ</div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">КУПЛЕНО</span><span class="font-black">${bought}</span></div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">ИСТЕКАЕТ</span><span class="font-black">${expires}</span></div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">РЕГИОН ID</span><span class="font-black">${p.area_id||'—'}</span></div>
+        </div>
+
+        <!-- Автопродление -->
+        <div class="border-2 border-black p-3 flex justify-between items-center">
+            <div>
+                <div class="text-[10px] font-black">АВТОПРОДЛЕНИЕ</div>
+                <div class="text-[8px] text-gray-400 font-bold normal-case">Автоматическое продление по истечении</div>
+            </div>
+            <button id="auto-extend-btn-${p.id}"
+                onclick="toggleAutoExtend(${p.id}, ${!p.auto_extend})"
+                class="border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${p.auto_extend ? 'bg-black text-white' : 'bg-white text-black hover:bg-zinc-100'}">
+                ${p.auto_extend ? 'ВКЛ' : 'ВЫКЛ'}
+            </button>
+        </div>
+
+        <!-- ID для диагностики -->
+        <div class="text-[8px] font-bold text-gray-300 text-center pt-1">
+            PROXY_ID: ${p.ipfoxy_proxy_id||'—'} • ORDER: ${p.ipfoxy_order_id||'—'}
+        </div>
+    `;
+}
+
+function togglePwd(proxyId, pwd) {
+    const el = document.getElementById('pwd-' + proxyId);
+    el.innerText = el.innerText === '••••••••' ? pwd : '••••••••';
+}
+
+function copyText(text) {
+    navigator.clipboard.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+    });
+    window.Telegram.WebApp.showAlert('Скопировано!');
+}
+
+async function toggleAutoExtend(proxyId, newValue) {
+    const btn = document.getElementById('auto-extend-btn-' + proxyId);
+    if (btn) { btn.disabled = true; btn.innerText = '...'; }
+    try {
+        const res = await fetch(`/api/v1/user/proxies/${proxyId}/auto-extend`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ auto_extend: newValue })
+        });
+        if (!res.ok) throw new Error(res.status);
+        if (btn) {
+            btn.innerText = newValue ? 'ВКЛ' : 'ВЫКЛ';
+            btn.className = `border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${newValue ? 'bg-black text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
+            btn.onclick = () => toggleAutoExtend(proxyId, !newValue);
+        }
+    } catch(e) {
+        window.Telegram.WebApp.showAlert('Ошибка обновления');
+        if (btn) { btn.disabled = false; btn.innerText = newValue ? 'ВЫКЛ' : 'ВКЛ'; }
+    }
+}
+</script>

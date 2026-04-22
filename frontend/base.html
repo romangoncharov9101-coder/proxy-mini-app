@@ -7,116 +7,131 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <title>PRX_CORE</title>
     <style>
-        :root {
-            --global-font-size: 16px; 
+        :root { --global-font-size: 16px; }
+        html  { font-size: var(--global-font-size) !important; }
+        body  {
+            font-size: 1rem !important; margin: 0; padding: 0;
+            background-color: #fff; -webkit-font-smoothing: antialiased;
+            overflow: hidden; height: 100%; width: 100%; position: fixed;
         }
-
-        html {
-            font-size: var(--global-font-size) !important;
-        }
-
-        body {
-            font-size: 1rem !important;
-            margin: 0;
-            padding: 0;
-            background-color: #fff;
-            -webkit-font-smoothing: antialiased;
-            overflow: hidden; 
-            height: 100%;
-            width: 100%;
-            position: fixed;
-        }
-
         .text-\[10px\] { font-size: 0.75rem !important; }
-        .text-xs { font-size: 0.85rem !important; }
-        .text-sm { font-size: 1rem !important; }
-        .text-lg { font-size: 1.25rem !important; }
-        .text-xl { font-size: 1.5rem !important; }
+        .text-xs  { font-size: 0.85rem !important; }
+        .text-sm  { font-size: 1rem !important; }
+        .text-lg  { font-size: 1.25rem !important; }
+        .text-xl  { font-size: 1.5rem !important; }
         .text-2xl { font-size: 2rem !important; }
-
-        nav div, button {
-            font-size: 1rem !important;
-        }
-        body { -webkit-font-smoothing: antialiased; }
+        nav div, button { font-size: 1rem !important; }
         .btn-active:active { background: #000; color: #fff; }
-
         ::-webkit-scrollbar { width: 0px; height: 0px; }
         .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none; 
-            overflow-y: scroll;
-            overflow-x: hidden;
-            -webkit-overflow-scrolling: touch;
-            box-sizing: border-box;
+            -ms-overflow-style: none; scrollbar-width: none;
+            overflow-y: scroll; overflow-x: hidden;
+            -webkit-overflow-scrolling: touch; box-sizing: border-box;
         }
     </style>
 </head>
 <body class="bg-white text-black font-mono uppercase selection:bg-black selection:text-white">
 
-    <div class="max-w-md mx-auto h-full flex flex-col border-x border-black overflow-hidden">
+<div class="max-w-md mx-auto h-full flex flex-col border-x border-black overflow-hidden">
+
+    <header class="shrink-0 border-b border-black">
+        <div class="flex justify-between items-baseline px-4 pt-2">
+            <span class="text-[9px] font-black tracking-widest text-gray-400">PRX_CORE</span>
+            <span class="text-[9px] font-bold" id="session-status"></span>
+        </div>
+        <div class="px-4 pb-3 bg-zinc-50 flex justify-between items-end">
+            <div class="flex-1 truncate mr-4">
+                <span class="text-[9px] text-gray-400 block">ИДЕНТИФИКАЦИЯ УЗЛА</span>
+                <span id="header-user-name" class="font-bold text-lg tracking-tight">ЗАГРУЗКА...</span>
+            </div>
+            <div class="text-right" id="balance-container">
+                <span class="text-[9px] text-gray-400 block">БАЛАНС</span>
+                <span class="font-bold text-lg"><span id="header-balance">—</span> <span id="header-balance-currency" class="text-[10px]"></span></span>
+            </div>
+        </div>
+    </header>
+
+    <main id="main-scroll" class="flex-grow overflow-y-auto no-scrollbar">
+        {% block content %}{% endblock %}
+    </main>
+
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    const TG_INIT = tg.initData;
+
+    async function fetchUserProfile() {
+        try {
+            const response = await fetch('/api/v1/user/me', {
+                headers: { 'X-TG-Init-Data': TG_INIT }
+            });
+
+            if (response.status === 403) {
+                window.location.href = '/403';
+                return;
+            }
+            if (response.status === 404) {
+                window.location.href = '/404';
+                return;
+            }
+            if (!response.ok) {
+                document.getElementById('session-status').innerText = 'ERR_' + response.status;
+                document.getElementById('header-user-name').innerText = 'ОШИБКА СЕССИИ';
+                return;
+            }
+
+            const user = await response.json();
+            updateHeader(user);
+            if (typeof renderInterface === 'function') renderInterface(user);
+
+        } catch (e) {
+            document.getElementById('header-user-name').innerText = 'NET_ERROR';
+            console.error(e);
+        }
+    }
+
+    function updateHeader(user) {
+        let name = user.first_name || user.username;
+        if (!name) name = 'USER_' + (tg.initDataUnsafe?.user?.id || '???');
+        document.getElementById('header-user-name').innerText = name.toUpperCase();
+
+        const balanceContainer = document.getElementById('balance-container');
         
-        <header class="shrink-0 border-b border-black">
-            <div class="flex justify-between items-baseline border-black">
-                <h1 class="text-xl font-bold tracking-tighter"></h1>
-                <span class="text-[10px] font-bold" id="session-status"></span>
-            </div>
-
-            <div class="p-4 bg-zinc-50 flex justify-between items-end">
-                <div class="flex-1 truncate mr-4">
-                    <span class="text-[9px] text-gray-400 block">ИДЕНТИФИКАЦИЯ УЗЛА</span>
-                    <span id="header-user-name" class="font-bold text-lg tracking-tight">ЗАГРУЗКА...</span>
-                </div>
-                <div class="text-right">
-                    <span class="text-[9px] text-gray-400 block">БАЛАНС</span>
-                    <span class="font-bold text-lg"><span id="header-balance">0.00</span> USD</span>
-                </div>
-            </div>
-        </header>
-
-        <main class="flex-grow overflow-y-auto no-scrollbar">
-            {% block content %}{% endblock %}
-        </main>
-
-
-    </div>
-
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-
-        async function fetchUserProfile() {
-            try {
-                const response = await fetch('/api/v1/user/me', {
-                    headers: { 'X-TG-Init-Data': tg.initData }
-                });
-                
-                if (response.ok) {
-                    const user = await response.json();
-                    updateHeader(user);
-                    if (typeof renderInterface === 'function') {renderInterface(user);}
-                } else {
-                    document.getElementById('session-status').innerText = 'AUTH ERROR';
-                    document.getElementById('header-user-name').innerText = 'ДОСТУП ЗАПРЕЩЕН';
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        function updateHeader(user) {
+        if (user.role === 'admin') {
+            balanceContainer.classList.add('hidden');
+        } else {
+            balanceContainer.classList.remove('hidden');
             
-            let displayName = user.first_name || user.username;
-            if (!displayName) {
-                const tgId = tg.initDataUnsafe?.user?.id || 'UNKNOWN';
-                displayName = `АНОНИМНЫЙ ПОЛЬЗОВАТЕЛЬ_${tgId}`;
-            }
-            
-            document.getElementById('header-user-name').innerText = displayName.toUpperCase();
-            document.getElementById('header-balance').innerText = user.balance;
+            const balance = parseFloat(user.balance || 0).toFixed(2);
+            document.getElementById('header-balance').innerText = balance;
+            document.getElementById('header-balance-currency').innerText = user.api_key_id ? 'USD' : '';
         }
+    }
 
-        fetchUserProfile();
-    </script>
+    /* ── Глобальный обработчик модальных окон ── */
+    function smartCloseModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        modal.classList.add('hidden');
+        const form = modal.querySelector('form');
+        if (form) form.reset();
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => smartCloseModal(m.id));
+        }
+    });
+
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal-overlay')) smartCloseModal(e.target.id);
+    });
+
+    fetchUserProfile();
+</script>
 </body>
 </html>

@@ -1,0 +1,166 @@
+<!-- МОДАЛ: Детали API ключа (stats + редактирование) -->
+<div id="key-detail-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[60] flex items-end justify-center">
+    <div class="bg-white border-t-4 border-black w-full max-w-md shadow-[0_-8px_0px_0px_rgba(0,0,0,1)] max-h-[90vh] flex flex-col">
+        <div class="bg-black text-white px-4 py-3 flex justify-between items-center shrink-0">
+            <span class="text-[10px] font-black tracking-widest">ИНФОРМАЦИЯ О КЛЮЧЕ</span>
+            <button onclick="smartCloseModal('key-detail-modal')" class="text-xl font-black">×</button>
+        </div>
+        <div id="key-detail-body" class="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1">
+            <div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>
+        </div>
+    </div>
+</div>
+
+<!-- МОДАЛ: Редактировать ключ -->
+<div id="edit-modal-overlay" class="modal-overlay hidden fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 flex justify-between items-center">
+            <span class="text-[10px] font-black tracking-widest">РЕДАКТИРОВАТЬ КЛЮЧ</span>
+            <button onclick="closeEditKeyModal()" class="text-xl font-black">×</button>
+        </div>
+        <form id="edit-key-form" class="p-5 space-y-4">
+            <input type="hidden" id="edit_key_id">
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Название</label>
+                <input type="text" id="edit_key_name" class="w-full border-2 border-black p-3 text-[10px] focus:bg-zinc-50 font-bold uppercase">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">ID Аккаунта (пусто = без изменений)</label>
+                <input type="text" id="edit_api_id" placeholder="без изменений" class="w-full border-2 border-black p-3 text-[10px] focus:bg-zinc-50">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Секретный ключ (пусто = без изменений)</label>
+                <input type="password" id="edit_api_key" placeholder="без изменений" class="w-full border-2 border-black p-3 text-[10px] focus:bg-zinc-50">
+            </div>
+            <div class="flex items-center gap-3 p-3 border-2 border-black bg-zinc-50">
+                <input type="checkbox" id="edit_is_active" class="w-4 h-4 accent-black">
+                <label for="edit_is_active" class="text-[9px] font-black uppercase">КЛЮЧ АКТИВЕН</label>
+            </div>
+            <button type="submit" class="w-full bg-black text-white py-3 text-[10px] font-black uppercase hover:invert transition-all">
+                ОБНОВИТЬ
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+async function openKeyDetail(keyId) {
+    const modal = document.getElementById('key-detail-modal');
+    const body  = document.getElementById('key-detail-body');
+    body.innerHTML = '<div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>';
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/v1/admin/keys/${keyId}/stats`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const k = await res.json();
+        renderKeyDetail(body, k);
+    } catch(e) {
+        body.innerHTML = '<div class="text-red-500 text-[9px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ</div>';
+    }
+}
+
+function renderKeyDetail(container, k) {
+    const nameStr = String(k.key_name || '—');
+    const displayName = nameStr.length > 20 ? nameStr.slice(0, 17) + '...' : nameStr;
+    
+    // Безопасная обработка API_ID
+    const idStr = String(k.api_id || '—');
+    const displayId = idStr.length > 20 ? idStr.slice(0, 17) + '...' : idStr;
+    
+    container.innerHTML = `
+        <!-- Статус -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="flex justify-between items-center">
+                <span class="text-[11px] font-black">${displayName}</span>
+                <div class="flex items-center gap-1">
+                    <div class="w-2 h-2 ${k.is_active ? 'bg-green-500' : 'bg-red-500'} border border-black"></div>
+                    <span class="text-[9px] font-bold">${k.is_active ? 'АКТИВЕН' : 'НЕАКТИВЕН'}</span>
+                </div>
+            </div>
+            <div class="text-[8px] font-bold text-gray-400">API_ID: ${displayId}</div>
+        </div>
+
+        <!-- Статистика -->
+        <div class="grid grid-cols-3 gap-2">
+            <div class="border-2 border-black p-2 text-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <div class="text-lg font-black">${parseFloat(k.balance||0).toFixed(2)}</div>
+                <div class="text-[7px] font-black text-gray-400">USD</div>
+            </div>
+            <div class="border-2 border-black p-2 text-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <div class="text-lg font-black">${k.proxy_count||0}</div>
+                <div class="text-[7px] font-black text-gray-400">ПРОКСИ</div>
+            </div>
+            <div class="border-2 border-black p-2 text-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <div class="text-lg font-black">${k.user_count||0}</div>
+                <div class="text-[7px] font-black text-gray-400">ПОЛЬЗОВ.</div>
+            </div>
+        </div>
+
+        <!-- Действия -->
+        <div class="grid grid-cols-2 gap-2">
+            <button onclick="smartCloseModal('key-detail-modal'); openEditKeyModal(${JSON.stringify(k).replace(/"/g,'&quot;')})"
+                class="border-2 border-black py-2 text-[9px] font-black hover:bg-zinc-100 transition-all">
+                РЕДАКТИРОВАТЬ
+            </button>
+            <button onclick="smartCloseModal('key-detail-modal'); switchKeysSubTab('users'); filterUsersByKey(${k.id})"
+                class="border-2 border-black py-2 text-[9px] font-black hover:bg-zinc-100 transition-all">
+                ПОЛЬЗОВАТЕЛИ
+            </button>
+        </div>
+
+        <!-- Последнее обновление -->
+        <div class="text-[8px] font-bold text-gray-300 text-center">
+            ОБНОВЛЕНО: ${k.last_checked ? new Date(k.last_checked).toLocaleString('ru-RU') : '—'}
+        </div>
+    `;
+}
+
+function openEditKeyModal(key) {
+    document.getElementById('edit_key_id').value    = key.id;
+    document.getElementById('edit_key_name').value  = key.key_name;
+    document.getElementById('edit_api_id').value    = '';
+    document.getElementById('edit_api_key').value   = '';
+    document.getElementById('edit_is_active').checked = key.is_active;
+    document.getElementById('edit-modal-overlay').classList.remove('hidden');
+}
+
+function closeEditKeyModal() { smartCloseModal('edit-modal-overlay'); }
+
+document.getElementById('edit-key-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('edit_key_id').value;
+    const payload = {
+        key_name:  document.getElementById('edit_key_name').value,
+        is_active: document.getElementById('edit_is_active').checked
+    };
+    const newId  = document.getElementById('edit_api_id').value;
+    const newKey = document.getElementById('edit_api_key').value;
+    if (newId)  payload.api_id = newId;
+    if (newKey) payload.key    = newKey;
+
+    const res = await fetch(`/api/v1/admin/keys/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) { closeEditKeyModal(); loadApiKeys(); }
+    else window.Telegram.WebApp.showAlert('ОШИБКА ОБНОВЛЕНИЯ');
+});
+
+/* Фильтрация пользователей по ключу */
+async function filterUsersByKey(keyId) {
+    adminUsersState = { nextCursor: null, hasMore: true, isLoading: false };
+    const container = document.getElementById('admin-users-list');
+    container.innerHTML = '';
+    const status = document.getElementById('admin-users-status');
+    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+    try {
+        const res = await fetch(`/api/v1/admin/users?key_id=${keyId}&limit=100`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        const users = await res.json();
+        users.forEach(u => container.appendChild(buildUserCard(u)));
+        adminUsersState.hasMore = false;
+        status.innerText = `КЛЮЧ #${keyId} — ${users.length} ПОЛЬЗОВАТЕЛЕЙ`;
+    } catch(e) { status.innerHTML = '<span class="text-red-500">ОШИБКА</span>'; }
+}
+</script>

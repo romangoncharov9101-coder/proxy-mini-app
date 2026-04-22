@@ -1,84 +1,101 @@
 <div id="user-layout" class="hidden">
-    <nav class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase">
-        <div id="tab-proxies" onclick="switchTab('proxies')" class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">
+    <nav class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
+        <div id="tab-proxies" onclick="switchUserTab('proxies')"
+             class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">
             Мои прокси
         </div>
-        <div id="tab-market"  onclick="switchTab('market')" class="flex-1 flex items-center justify-center cursor-pointer">
+        <div id="tab-market" onclick="switchUserTab('market')"
+             class="flex-1 flex items-center justify-center cursor-pointer hover:bg-zinc-100">
             Маркет
         </div>
     </nav>
 
-    <div class="p-6">
+    <div class="p-4">
         <section id="tab-content-proxies">
             {% include "user/tabs/proxies.html" %}
         </section>
-
         <section id="tab-content-market" class="hidden">
             {% include "user/tabs/market.html" %}
         </section>
     </div>
 </div>
 
+<!-- Модал успешной покупки -->
+<div id="purchase-success-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 text-center">
+            <div class="text-3xl font-black mb-1">✓</div>
+            <div class="text-[10px] font-black tracking-widest">ЗАКАЗ ВЫПОЛНЕН</div>
+        </div>
+        <div class="p-6 space-y-3">
+            <div id="purchase-success-info" class="text-[10px] font-bold text-gray-600 space-y-1 border-2 border-black p-3 bg-zinc-50"></div>
+            <button onclick="smartCloseModal('purchase-success-modal'); switchUserTab('proxies');"
+                class="w-full bg-black text-white py-3 text-[10px] font-black hover:invert transition-all">
+                ПЕРЕЙТИ К ПРОКСИ
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Модал ошибки покупки -->
+<div id="purchase-error-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 text-center">
+            <div class="text-3xl font-black mb-1">✕</div>
+            <div class="text-[10px] font-black tracking-widest">ОШИБКА ОПЕРАЦИИ</div>
+        </div>
+        <div class="p-6 space-y-3">
+            <div id="purchase-error-info" class="text-[10px] font-bold text-red-600 border-2 border-red-500 p-3 bg-red-50"></div>
+            <button onclick="smartCloseModal('purchase-error-modal')"
+                class="w-full border-2 border-black py-3 text-[10px] font-black hover:bg-black hover:text-white transition-all">
+                ЗАКРЫТЬ
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
-    async function initUser() {
-        await loadUserProxies();
+async function initUser() {
+    await initProxiesTab();
+}
 
-        const layout = document.getElementById('user-layout');
-        if (layout) {
-            layout.classList.remove('hidden');
-        }
-    }
-
-    function switchTab(tab) {
-        const proxiesContent = document.getElementById('tab-content-proxies');
-        const marketContent = document.getElementById('tab-content-market');
-        const tabProxies = document.getElementById('tab-proxies');
-        const tabMarket = document.getElementById('tab-market');
-
-        if (tab === 'market') {
-            proxiesContent.classList.add('hidden');
-            marketContent.classList.remove('hidden');
-            tabMarket.classList.add('bg-black', 'text-white');
-            tabProxies.classList.remove('bg-black', 'text-white');
-            if (typeof initMarketLogic === 'function') {
-                initMarketLogic();
-            }
+function switchUserTab(tab) {
+    const tabs = ['proxies', 'market'];
+    tabs.forEach(t => {
+        document.getElementById('tab-content-' + t).classList.toggle('hidden', t !== tab);
+        const el = document.getElementById('tab-' + t);
+        if (t === tab) {
+            el.classList.add('bg-black', 'text-white');
+            el.classList.remove('hover:bg-zinc-100');
         } else {
-            marketContent.classList.add('hidden');
-            proxiesContent.classList.remove('hidden');
-            tabProxies.classList.add('bg-black', 'text-white');
-            tabMarket.classList.remove('bg-black', 'text-white');
-        }
-    }
-
-    // Находим элемент main, который теперь является областью скролла
-    const scrollContainer = document.querySelector('main');
-
-    scrollContainer.addEventListener('scroll', () => {
-        const marketTab = document.getElementById('tab-content-market');
-        
-        // Проверяем, существует ли вкладка и видна ли она
-        if (marketTab && !marketTab.classList.contains('hidden')) {
-            
-            // Высота контента внутри main
-            const scrollHeight = scrollContainer.scrollHeight;
-            // На сколько прокрутили сверху
-            const scrollTop = scrollContainer.scrollTop;
-            // Видимая высота контейнера
-            const clientHeight = scrollContainer.clientHeight;
-
-            // Если сумма прокрутки и видимой части почти равна полной высоте контента
-            if (scrollTop + clientHeight >= scrollHeight - 200) {
-                if (typeof loadNextMarketPage === 'function') {
-                    // Чтобы не вызывать функцию 100 раз в секунду, 
-                    // можно добавить проверку, не идет ли уже загрузка
-                    loadNextMarketPage();
-                }
-            }
+            el.classList.remove('bg-black', 'text-white');
+            el.classList.add('hover:bg-zinc-100');
         }
     });
 
-    async function loadUserProxies() {
-        console.log('I`m here')
+    if (tab === 'market' && typeof initMarketLogic === 'function') {
+        const container = document.getElementById('countries-container');
+        if (container && container.children.length === 0) initMarketLogic();
     }
+    if (tab === 'proxies') {
+        const container = document.getElementById('user-proxies-container');
+        if (container && container.children.length === 0) initProxiesTab();
+    }
+}
+
+function showPurchaseSuccess(orderData) {
+    const info = document.getElementById('purchase-success-info');
+    info.innerHTML = `
+        <div class="flex justify-between"><span>ЗАКАЗ</span><span class="font-black">#${orderData.order_id}</span></div>
+        <div class="flex justify-between"><span>КУПЛЕНО</span><span class="font-black">${orderData.count} ШТ.</span></div>
+    `;
+    document.getElementById('purchase-success-modal').classList.remove('hidden');
+    proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
+    document.getElementById('user-proxies-container').innerHTML = '';
+}
+
+function showPurchaseError(message) {
+    document.getElementById('purchase-error-info').innerText = message;
+    document.getElementById('purchase-error-modal').classList.remove('hidden');
+}
 </script>

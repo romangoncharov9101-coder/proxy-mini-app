@@ -1,0 +1,128 @@
+<!-- МОДАЛ: Добавить API ключ -->
+<div id="modal-overlay" class="modal-overlay hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 flex justify-between items-center">
+            <span class="text-[10px] font-black tracking-widest">НОВЫЙ API КЛЮЧ</span>
+            <button onclick="closeAddKeyModal()" class="text-xl font-black">×</button>
+        </div>
+        <form id="add-key-form" class="p-5 space-y-4">
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Название аккаунта *</label>
+                <input type="text" id="key_name" required placeholder="MY_ACCOUNT_01"
+                    class="w-full border-2 border-black p-3 text-[10px] focus:outline-none focus:bg-zinc-50 font-bold uppercase">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">ID Аккаунта (api_id) *</label>
+                <input type="text" id="api_id_val" required
+                    class="w-full border-2 border-black p-3 text-[10px] focus:outline-none focus:bg-zinc-50">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Секретный ключ *</label>
+                <input type="password" id="api_key_val" required
+                    class="w-full border-2 border-black p-3 text-[10px] focus:outline-none focus:bg-zinc-50">
+            </div>
+            <div>
+                <label class="block text-[9px] font-black uppercase mb-1">Привязать пользователя (Telegram ID, опционально)</label>
+                <input type="number" id="key_assign_tg_id" placeholder="123456789"
+                    class="w-full border-2 border-black p-3 text-[10px] focus:outline-none focus:bg-zinc-50">
+            </div>
+            <div id="add-key-error" class="hidden text-[9px] font-black text-red-500 border-2 border-red-500 p-2"></div>
+            <button type="submit" class="w-full bg-black text-white py-3 text-[10px] font-black uppercase hover:invert transition-all">
+                СОХРАНИТЬ
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+function openAddKeyModal() {
+    document.getElementById('add-key-error').classList.add('hidden');
+    document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function closeAddKeyModal() { smartCloseModal('modal-overlay'); }
+
+document.getElementById('add-key-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('add-key-error');
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    
+    // Сброс состояния
+    errEl.classList.add('hidden');
+    errEl.innerText = '';
+
+    const payload = {
+        key_name: document.getElementById('key_name').value.trim(),
+        api_id:   document.getElementById('api_id_val').value.trim(),
+        key:      document.getElementById('api_key_val').value.trim()
+    };
+
+    // --- ФРОНТЕНД ВАЛИДАЦИЯ (согласно модели SQLAlchemy) ---
+    if (payload.key_name.length < 3 || payload.key_name.length > 255) {
+        return showError('Название должно быть от 3 до 255 символов');
+    }
+    if (payload.api_id.length > 100) {
+        return showError('ID Аккаунта слишком длинный (макс. 100)');
+    }
+    if (payload.key.length > 500) {
+        return showError('Ключ слишком длинный (макс. 500)');
+    }
+
+    function showError(msg) {
+        errEl.innerText = msg.toUpperCase();
+        errEl.classList.remove('hidden');
+        return false;
+    }
+
+    try {
+        // Визуальный фидбек
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'СОХРАНЕНИЕ...';
+
+        const res = await fetch('/api/v1/admin/keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            if (Array.isArray(data.detail)) {
+                throw new Error(data.detail.map(d => `${d.loc[1]}: ${d.msg}`).join(', '));
+            }
+            throw new Error(data.detail || 'Ошибка сервера');
+        }
+
+        /* Привязка пользователя */
+        const tgIdRaw = document.getElementById('key_assign_tg_id').value.trim();
+        if (tgIdRaw) {
+            await assignKeyByTgId(data.id, parseInt(tgIdRaw));
+        }
+
+        e.target.reset();
+        closeAddKeyModal();
+        loadApiKeys();
+
+    } catch(err) {
+        showError(err.message);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'СОХРАНИТЬ';
+    }
+});
+
+/* Вспомогательная: найти user.id по telegram_id и назначить ключ */
+async function assignKeyByTgId(keyId, tgId) {
+    try {
+        const res = await fetch(`/api/v1/admin/users?limit=100`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        const users = await res.json();
+        const found = users.find(u => u.telegram_id === tgId);
+        if (!found) return;
+        await fetch('/api/v1/admin/users/assign-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ user_ids: [found.id], key_id: keyId })
+        });
+    } catch(e) { console.warn('assignKeyByTgId:', e); }
+}
+</script>

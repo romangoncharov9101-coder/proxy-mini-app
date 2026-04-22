@@ -1,157 +1,371 @@
 <div id="admin-layout" class="hidden">
-    <nav id="admin-nav" class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase">
-        <div onclick="switchAdminTab('keys', this)" class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">
-            Ключи
-        </div>
-        <div onclick="switchAdminTab('proxies', this)" class="flex-1 flex items-center justify-center border-r border-black cursor-pointer hover:bg-zinc-100">
-            Прокси
-        </div>
-        <div onclick="switchAdminTab('tx', this)" class="flex-1 flex items-center justify-center cursor-pointer hover:bg-zinc-100">
-            Транзакции
-        </div>
+
+    <!-- ══ ГЛАВНЫЙ НАВ ══ -->
+    <nav id="admin-nav" class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
+        <div onclick="switchAdminTab('keys',this)"
+             class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">АПИ</div>
+        <div onclick="switchAdminTab('proxies',this)"
+             class="flex-1 flex items-center justify-center border-r border-black cursor-pointer hover:bg-zinc-100">ПРОКСИ</div>
+        <div onclick="switchAdminTab('tx',this)"
+             class="flex-1 flex items-center justify-center cursor-pointer hover:bg-zinc-100">ТРАНЗАКЦИИ</div>
     </nav>
 
-    <div class="p-6">
-        
-        <div id="admin-keys-section" class="space-y-6">
-            <div class="p-2 bg-zinc-50">
-                <button onclick="openAddKeyModal()" class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all">
-                    Добавить новый API ключ
-                </button>
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- ВКЛАДКА: АПИ КЛЮЧИ + ПОЛЬЗОВАТЕЛИ               -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="admin-keys-section" class="mt-2">
+
+        <!-- Подвкладки -->
+        <div class="flex border-2 border-black text-[9px] font-black uppercase">
+            <div id="sub-tab-keys-btn" onclick="switchKeysSubTab('keys')"
+                 class="flex-1 py-2 text-center border-r border-black cursor-pointer bg-zinc-900 text-white">
+                КЛЮЧИ
             </div>
-            
-            <div id="keys-list" class="space-y-4">
-                <div class="text-[10px] text-gray-500 uppercase font-bold text-center py-10 border-2 border-dashed border-zinc-200 no-scrollbar">
-                    Поиск активных ключей...
-                </div>
+            <div id="sub-tab-users-btn" onclick="switchKeysSubTab('users')"
+                 class="flex-1 py-2 text-center cursor-pointer bg-white text-black hover:bg-zinc-100">
+                ПОЛЬЗОВАТЕЛИ
             </div>
         </div>
 
-        <div id="admin-proxies-section" class="hidden">
-            <div class="text-[10px] font-bold uppercase">Управление всеми прокси системы</div>
+        <!-- == ПОДВКЛАДКА: КЛЮЧИ == -->
+        <div id="sub-tab-keys" class="p-4 space-y-4">
+            <button onclick="openAddKeyModal()"
+                class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
+                + ДОБАВИТЬ API КЛЮЧ
+            </button>
+            <div id="keys-list" class="space-y-3">
+                <div class="text-[9px] text-gray-400 font-black text-center py-8 animate-pulse">ЗАГРУЗКА...</div>
             </div>
+        </div>
 
-        <div id="admin-tx-section" class="hidden">
-            <div class="text-[10px] font-bold uppercase">История финансовых операций</div>
-            </div>
+        <!-- == ПОДВКЛАДКА: ПОЛЬЗОВАТЕЛИ == -->
+        <div id="sub-tab-users" class="hidden p-4 space-y-4">
+            <button onclick="openAddUserModal()"
+                class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
+                + ДОБАВИТЬ ПОЛЬЗОВАТЕЛЯ
+            </button>
+            <div id="admin-users-list" class="space-y-3"></div>
+            <div id="admin-users-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
+        </div>
     </div>
-    {% include "admin/admin_modal_add_key.html" %}
-    {% include "admin/admin_modal_edit_key.html" %}
+
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- ВКЛАДКА: ПРОКСИ                                   -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="admin-proxies-section" class="hidden p-4 space-y-3">
+        <div id="admin-proxies-list" class="space-y-3"></div>
+        <div id="admin-proxies-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- ВКЛАДКА: ТРАНЗАКЦИИ                               -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="admin-tx-section" class="hidden p-4 space-y-3">
+        <div id="admin-tx-list" class="space-y-3"></div>
+        <div id="admin-tx-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
+    </div>
+
 </div>
 
+<!-- ════════════════════════════════════════════════════════
+     МОДАЛЫ
+════════════════════════════════════════════════════════ -->
+{% include "admin/modals/modal_add_key.html" %}
+{% include "admin/modals/modal_add_user.html" %}
+{% include "admin/modals/modal_key_detail.html" %}
+{% include "admin/modals/modal_user_detail.html" %}
+{% include "admin/modals/modal_proxy_detail_admin.html" %}
+
 <script>
-    function initAdmin() {
-        loadApiKeys();
+/* ════════ STATE ════════ */
+let adminUsersState   = { nextCursor: null, hasMore: true, isLoading: false };
+let adminProxiesState = { nextCursor: null, hasMore: true, isLoading: false };
+let adminTxState      = { nextCursor: null, hasMore: true, isLoading: false };
+
+/* ════════ INIT ════════ */
+function initAdmin() {
+    loadApiKeys();
+}
+
+/* ════════ ГЛАВНЫЕ ВКЛАДКИ ════════ */
+function switchAdminTab(tab, el) {
+    document.querySelectorAll('#admin-nav > div').forEach(d => {
+        d.classList.remove('bg-black','text-white');
+        d.classList.add('hover:bg-zinc-100');
+    });
+    el.classList.add('bg-black','text-white');
+    el.classList.remove('hover:bg-zinc-100');
+
+    ['keys','proxies','tx'].forEach(t =>
+        document.getElementById('admin-' + t + '-section').classList.toggle('hidden', t !== tab)
+    );
+
+    if (tab === 'proxies' && adminProxiesState.nextCursor === null && adminProxiesState.hasMore) {
+        loadNextAdminProxiesPage();
     }
+    if (tab === 'tx' && adminTxState.nextCursor === null && adminTxState.hasMore) {
+        loadNextAdminTxPage();
+    }
+}
 
-    function switchAdminTab(tab, element) {
-        const navItems = document.getElementById('admin-nav').querySelectorAll('div');
-        navItems.forEach(item => {
-            item.classList.remove('bg-black', 'text-white');
-            item.classList.add('hover:bg-zinc-100');
-        });
+/* ════════ ПОДВКЛАДКИ КЛЮЧИ/ПОЛЬЗОВАТЕЛИ ════════ */
+function switchKeysSubTab(tab) {
+    const isKeys = tab === 'keys';
+    document.getElementById('sub-tab-keys').classList.toggle('hidden', !isKeys);
+    document.getElementById('sub-tab-users').classList.toggle('hidden', isKeys);
+    document.getElementById('sub-tab-keys-btn').className  = `flex-1 py-2 text-center border-r border-black cursor-pointer ${isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
+    document.getElementById('sub-tab-users-btn').className = `flex-1 py-2 text-center cursor-pointer ${!isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
 
-        element.classList.add('bg-black', 'text-white');
-        element.classList.remove('hover:bg-zinc-100');
+    if (!isKeys && adminUsersState.nextCursor === null && adminUsersState.hasMore) {
+        loadNextUsersPage();
+    }
+}
 
-        document.getElementById('admin-keys-section').classList.add('hidden');
-        document.getElementById('admin-proxies-section').classList.add('hidden');
-        document.getElementById('admin-tx-section').classList.add('hidden');
+/* ════════════════════════════════════════
+   API КЛЮЧИ
+════════════════════════════════════════ */
+async function loadApiKeys() {
+    const container = document.getElementById('keys-list');
+    container.innerHTML = '<div class="text-[9px] text-gray-400 font-black text-center py-8 animate-pulse">СИНХРОНИЗАЦИЯ...</div>';
+    try {
+        const res = await fetch('/api/v1/admin/keys', { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const keys = await res.json();
 
-        if (tab === 'keys') {
-            document.getElementById('admin-keys-section').classList.remove('hidden');
-            loadApiKeys();
-        } else if (tab === 'proxies') {
-            document.getElementById('admin-proxies-section').classList.remove('hidden');
-        } else if (tab === 'tx') {
-            document.getElementById('admin-tx-section').classList.remove('hidden');
+        if (!keys.length) {
+            container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">КЛЮЧЕЙ НЕТ — ДОБАВЬТЕ ПЕРВЫЙ</div>';
+            return;
         }
+        container.innerHTML = '';
+        keys.forEach(k => container.appendChild(buildKeyCard(k)));
+    } catch(e) {
+        container.innerHTML = '<div class="text-red-500 text-[9px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ</div>';
     }
+}
 
-    async function loadApiKeys() {
-        const container = document.getElementById('keys-list');
-        container.innerHTML = `
-            <div class="text-xs text-gray-400 uppercase font-black text-center py-10 animate-pulse">
-                Синхронизация с базой данных...
+function buildKeyCard(k) {
+    const el = document.createElement('div');
+    el.className = 'border-2 border-black p-3 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-2';
+
+    const nameStr = String(k.key_name || '—');
+    const displayName = nameStr.length > 40 ? nameStr.slice(0, 37) + '...' : nameStr;
+    
+    const idStr = String(k.api_id || '—');
+    const displayId = idStr.length > 20 ? idStr.slice(0, 17) + '...' : idStr;
+
+    el.innerHTML = `
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="w-2 h-2 ${k.is_active ? 'bg-green-500' : 'bg-red-500'} border border-black shrink-0"></div>
+                <span class="text-[11px] font-black truncate">${displayName}</span>
             </div>
-        `;
+            <span class="text-[9px] font-black shrink-0 ml-2">${k.balance ? parseFloat(k.balance).toFixed(2)+' USD' : '0.00 USD'}</span>
+        </div>
+        <div class="text-[8px] font-bold text-gray-400">ID: ${displayId||'—'} &nbsp;|&nbsp; ${k.is_active ? 'АКТИВЕН' : 'НЕАКТИВЕН'}</div>
+        <div class="flex gap-2">
+            <button onclick="openKeyDetail(${k.id})" class="flex-1 border-2 border-black py-1.5 text-[9px] font-black hover:bg-zinc-100 transition-all">ИНФО</button>
+            <button onclick="openEditKeyModal(${JSON.stringify(k).replace(/"/g,'&quot;')})" class="flex-1 border-2 border-black py-1.5 text-[9px] font-black hover:bg-zinc-100 transition-all">РЕД.</button>
+            <button onclick="deleteApiKey(${k.id})" class="border-2 border-black px-3 py-1.5 text-[9px] font-black hover:bg-red-500 hover:text-white transition-all">✕</button>
+        </div>
+    `;
+    return el;
+}
 
-        try {
-            const response = await fetch('/api/v1/admin/keys', {
-                method: 'GET',
-                headers: {
-                    'X-TG-Init-Data': window.Telegram.WebApp.initData
-                }
-            });
+async function deleteApiKey(id) {
+    if (!confirm('УДАЛИТЬ КЛЮЧ? ПОЛЬЗОВАТЕЛИ ПОТЕРЯЮТ ПРИВЯЗКУ.')) return;
+    const res = await fetch(`/api/v1/admin/keys/${id}`, { method: 'DELETE', headers: { 'X-TG-Init-Data': TG_INIT } });
+    if (res.ok) loadApiKeys();
+    else window.Telegram.WebApp.showAlert('ОШИБКА УДАЛЕНИЯ');
+}
 
-            const keys = await response.json();
+/* ════════════════════════════════════════
+   ПОЛЬЗОВАТЕЛИ
+════════════════════════════════════════ */
+async function loadNextUsersPage() {
+    if (!adminUsersState.hasMore || adminUsersState.isLoading) return;
+    adminUsersState.isLoading = true;
+    const status = document.getElementById('admin-users-status');
+    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
 
-            if (keys.length === 0) {
-                container.innerHTML = `
-                    <div class="text-sm text-gray-500 uppercase font-black text-center py-12 border-2 border-dashed border-zinc-200">
-                        Ключей не найдено, воспользуйтесь формой добавления API ключей
-                    </div>`;
-                return;
+    try {
+        const params = new URLSearchParams({ limit: 30 });
+        if (adminUsersState.nextCursor != null) params.append('last_id', adminUsersState.nextCursor);
+        const res = await fetch(`/api/v1/admin/users?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const items = await res.json();
+
+        const container = document.getElementById('admin-users-list');
+        if (!items.length && !adminUsersState.nextCursor) {
+            container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">ПОЛЬЗОВАТЕЛЕЙ НЕТ</div>';
+            adminUsersState.hasMore = false;
+        } else {
+            items.forEach(u => container.appendChild(buildUserCard(u)));
+            adminUsersState.nextCursor = items.length === 30 ? items[items.length-1].id : null;
+            adminUsersState.hasMore    = items.length === 30;
+        }
+        status.innerText = adminUsersState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : '';
+    } catch(e) {
+        status.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
+    } finally { adminUsersState.isLoading = false; }
+}
+
+function buildUserCard(u) {
+    const el = document.createElement('div');
+    el.className = 'border-2 border-black p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-2';
+    const name = u.first_name || u.username || 'USER_'+u.telegram_id;
+
+    const nameStr = String(u.api_key_name || '—');
+    const displayName = nameStr.length > 40 ? nameStr.slice(0, 37) + '...' : nameStr;
+
+    el.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="text-[11px] font-black truncate">${name.toUpperCase()}</span>
+            <span class="text-[8px] font-black border border-black px-1.5 py-0.5 shrink-0 ml-2">${u.role.toUpperCase()}</span>
+        </div>
+        <div class="text-[8px] font-bold text-gray-400">TG: ${u.telegram_id} &nbsp;|&nbsp; КЛЮЧ: ${displayName || '—'}</div>
+        <div class="flex gap-2">
+            <button onclick="openUserDetail(${u.id})" class="flex-1 border-2 border-black py-1.5 text-[9px] font-black hover:bg-zinc-100 transition-all">ИНФО</button>
+            <button onclick="blockUser(${u.id},'${name}')" class="border-2 border-black px-3 py-1.5 text-[9px] font-black hover:bg-red-500 hover:text-white transition-all">БАН</button>
+        </div>
+    `;
+    return el;
+}
+
+async function blockUser(userId, name) {
+    if (!confirm(`ЗАБЛОКИРОВАТЬ "${name}"?\nПОЛЬЗОВАТЕЛЬ БУДЕТ УДАЛЁН ИЗ БЕЛОГО СПИСКА.`)) return;
+    const res = await fetch(`/api/v1/admin/users/${userId}/block`, { method: 'DELETE', headers: { 'X-TG-Init-Data': TG_INIT } });
+    if (res.ok) {
+        adminUsersState = { nextCursor: null, hasMore: true, isLoading: false };
+        document.getElementById('admin-users-list').innerHTML = '';
+        loadNextUsersPage();
+    } else {
+        window.Telegram.WebApp.showAlert('ОШИБКА БЛОКИРОВКИ');
+    }
+}
+
+/* ════════════════════════════════════════
+   ПРОКСИ (ADMIN)
+════════════════════════════════════════ */
+async function loadNextAdminProxiesPage() {
+    if (!adminProxiesState.hasMore || adminProxiesState.isLoading) return;
+    adminProxiesState.isLoading = true;
+    const status = document.getElementById('admin-proxies-status');
+    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+
+    try {
+        const params = new URLSearchParams({ limit: 20 });
+        if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
+        const res = await fetch(`/api/v1/admin/proxies?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+
+        const container = document.getElementById('admin-proxies-list');
+        if (!data.items.length && !adminProxiesState.nextCursor) {
+            container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">ПРОКСИ НЕТ</div>';
+        } else {
+            data.items.forEach(p => container.appendChild(buildAdminProxyCard(p)));
+            adminProxiesState.nextCursor = data.next_cursor;
+            adminProxiesState.hasMore    = data.has_more;
+        }
+        status.innerText = adminProxiesState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : '';
+    } catch(e) {
+        status.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
+    } finally { adminProxiesState.isLoading = false; }
+}
+
+function buildAdminProxyCard(p) {
+    const getStatusClass = (proxy) => {
+        if (!proxy.is_active) return 'bg-red-500'; // Серый, если неактивен
+
+            const expiresAt = new Date(proxy.expires_at);
+            const now = new Date();
+            
+            const diffTime = expiresAt - now;
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+            if (diffDays <= 0) {
+                return 'bg-red-500';
+            }
+            
+            if (diffDays < 3) {
+                return 'bg-yellow-500';
             }
 
-            const truncateStr = (str, n) => (str && str.length > n) ? str.substr(0, n - 1) + '...' : str;
+            return 'bg-green-500';
+        };
 
-            container.innerHTML = keys.map(key => {
-                const safeName = truncateStr(key.key_name, 15);
-                const safeId = truncateStr(key.api_id || 'NOT_SET', 12);
+    const dot = getStatusClass(p);
+    const expires = p.expires_at ? new Date(p.expires_at).toLocaleDateString('ru-RU') : '—';
+    const el = document.createElement('div');
+    el.className = 'border-2 border-black p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:bg-zinc-50 transition-all';
+    el.onclick = () => openAdminProxyDetail(p.id);
+    el.innerHTML = `
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="w-2 h-2 ${dot} border border-black shrink-0"></div>
+                <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
+            </div>
+            <div>
+                <img src="https://flagcdn.com/w40/${p.country_code.toLowerCase()}.png" 
+                    class="w-6 h-4 border border-black object-cover" 
+                    onerror="this.src='https://placehold.co/40x30?text=?'">
+                <span class="text-[8px] font-bold text-gray-400 shrink-0 ml-2">${(p.country_code||'—')}</span>
+            </div>
+        </div>
+        <div class="flex justify-between mt-1 text-[8px] font-bold text-gray-400">
+            <span>${(p.ip_type||'').replace('_',' ')} • ${p.type||'socks5'}</span>
+            <span>ДО: ${expires}</span>
+        </div>
+    `;
+    return el;
+}
 
-                return `
-                    <div onclick="openEditKeyModal(${JSON.stringify(key).replace(/"/g, '&quot;')})"
-                        class="border-2 border-black p-4 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex justify-between items-center group overflow-hidden cursor-pointer hover:bg-zinc-50 transition-colors">
-                        <div class="space-y-1 min-w-0 flex-1 mr-4"> <div class="flex items-center gap-2">
-                                <div class="w-2 h-2 ${key.is_active ? 'bg-green-500' : 'bg-red-500'} border border-black shrink-0"></div>
-                                <span class="text-sm font-black uppercase tracking-tight truncate block" title="${key.key_name}">
-                                    ${safeName}
-                                </span>
-                            </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold text-gray-400 uppercase">
-                                <span class="truncate">ID: ${safeId}</span>
-                                <span class="shrink-0">Баланс: ${key.balance ? parseFloat(key.balance).toFixed(2) + ' USD' : '0.00 USD'}</span>
-                            </div>
-                        </div>
-                        
-                        <div class="flex gap-2 shrink-0">
-                            <button onclick="event.stopPropagation(); deleteApiKey(${key.id})" 
-                                class="p-2 border-2 border-black hover:bg-red-500 hover:text-white transition-colors active:translate-y-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        } catch (error) {
-            container.innerHTML = `
-                <div class="border-2 border-red-500 p-4 text-red-500 text-xs font-black uppercase text-center">
-                    Критическая ошибка при загрузке данных
-                </div>
-            `;
+/* ════════════════════════════════════════
+   ТРАНЗАКЦИИ (ADMIN)
+════════════════════════════════════════ */
+async function loadNextAdminTxPage() {
+    if (!adminTxState.hasMore || adminTxState.isLoading) return;
+    adminTxState.isLoading = true;
+    const status = document.getElementById('admin-tx-status');
+    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+
+    try {
+        const params = new URLSearchParams({ limit: 20 });
+        if (adminTxState.nextCursor != null) params.append('last_id', adminTxState.nextCursor);
+        const res = await fetch(`/api/v1/admin/transactions?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+
+        const container = document.getElementById('admin-tx-list');
+        if (!data.items.length && !adminTxState.nextCursor) {
+            container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">ТРАНЗАКЦИЙ НЕТ</div>';
+        } else {
+            data.items.forEach(tx => container.appendChild(buildTxCard(tx)));
+            adminTxState.nextCursor = data.next_cursor;
+            adminTxState.hasMore    = data.has_more;
         }
-    }
+        status.innerText = adminTxState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : '';
+    } catch(e) {
+        status.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
+    } finally { adminTxState.isLoading = false; }
+}
 
-    async function deleteApiKey(id) {
-        if (!confirm("ВНИМАНИЕ: УДАЛЕНИЕ КЛЮЧА ПРИВЕДЕТ К ОСТАНОВКЕ ВСЕХ СВЯЗАННЫХ ПРОКСИ. ПРОДОЛЖИТЬ?")) return;
-
-        try {
-            const response = await fetch(`/api/v1/admin/keys/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'X-TG-Init-Data': window.Telegram.WebApp.initData
-                }
-            });
-            if (response.ok) {
-                loadApiKeys();
-            } else {
-                alert('ОШИБКА УДАЛЕНИЯ')
-            }
-        } catch (error) {
-            alert('СЕТЕВАЯ ОШИБКА')
-        }
-    }
+function buildTxCard(tx) {
+    const date = new Date(tx.created_at).toLocaleString('ru-RU');
+    const typeColors = { purchase:'text-red-600', renewal:'text-blue-600', deposit:'text-green-600' };
+    const tc = typeColors[tx.type] || '';
+    const el = document.createElement('div');
+    el.className = 'border-2 border-black p-3 bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] space-y-1';
+    el.innerHTML = `
+        <div class="flex justify-between items-center">
+            <span class="text-[10px] font-black ${tc}">${(tx.type||'').toUpperCase()}</span>
+            <span class="text-[11px] font-black">${parseFloat(tx.amount).toFixed(2)} USD</span>
+        </div>
+        <div class="text-[8px] font-bold text-gray-400">
+            TG: ${tx.user_tg_id||'—'} &nbsp;|&nbsp; КЛЮЧ: ${tx.api_key_name||'—'}
+        </div>
+        <div class="text-[8px] font-bold text-gray-300">${date}${tx.description ? ' · '+tx.description : ''}</div>
+    `;
+    return el;
+}
 </script>

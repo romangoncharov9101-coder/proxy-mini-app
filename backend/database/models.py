@@ -42,7 +42,7 @@ class User(Base):
     first_name = Column(String(255), nullable=True)
     role = Column(SAEnum(UserRole), default=UserRole.user, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    api_key_id = Column(Integer, ForeignKey('api_keys_id'), nullable=True)
+    api_key_id = Column(Integer, ForeignKey('api_keys.id'), nullable=True)
 
     api_key = relationship('ApiKey', back_populates='users')
     proxies = relationship('Proxy', back_populates='owner')
