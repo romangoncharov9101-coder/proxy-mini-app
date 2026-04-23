@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timezone
@@ -21,13 +21,28 @@ logger = logging.getLogger('routes.admin')
 
 @router.get('/keys', response_model=list[schemas.ApiKeyResponse])
 async def get_api_keys(
+    search: Optional[str] = Query(None, description="Поиск по api_id или key_name"),
+    is_active: Optional[bool] = Query(None, description="Фильтр: True - активные, False - выключенные"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    '''Список всех API ключей, новые первые.'''
-    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
+    '''
+    Список всех API ключей, новые первые.
+    Поиск: по названию ключа, и по api_id.
+    Фильтрация: Выбрать активные ключи или деактивированные.
+    '''
+    stmt = select(ApiKey).order_by(ApiKey.created_at.desc())
+
+    if search:
+        stmt = stmt.where(
+            (ApiKey.key_name.ilike(f'%{search}%')) | (ApiKey.api_id.ilike(f'%{search}%'))
+        )
+
+    if is_active is not None:
+        stmt = stmt.where(ApiKey.is_active == is_active)
+    
+    result = await db.execute(stmt)
     keys = result.scalars().all()
-    logger.debug(f'[ADMIN_KEYS] найдено {len(keys)} ключей')
     return keys
 
 
@@ -171,7 +186,8 @@ async def delete_api_key(
 async def get_users(
     last_id:  Optional[int] = Query(None),
     limit:    int = Query(30, ge=1, le=100),
-    key_id:   Optional[int] = Query(None, description='фильтр по api_key_id'),
+    key_id:   Optional[int] = Query(None),
+    search: Optional[str] = Query(None, description='Поиск по TG ID, username и first_name'),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -179,6 +195,8 @@ async def get_users(
     Список всех пользователей с cursor-пагинацией.
     Опционально: фильтр по привязанному ключу (key_id).
     Включает название ключа (join).
+    Поиск: по TG ID, username и first_name.
+    Фильтрация: По API ключам.
     '''
     logger.info('[ADMIN_USERS] admin_id=%s last_id=%s limit=%s key_id=%s', admin.id, last_id, limit, key_id)
 
@@ -188,6 +206,14 @@ async def get_users(
         .where(User.role == UserRole.user)
         .order_by(User.id.asc())
     )
+
+    if search:
+        search_filter = f'%{search}%'
+        stmt = stmt.where(
+            (func.cast(User.telegram_id, String).ilike(search_filter)) |
+            (User.username.ilike(search_filter)) |
+            (User.first_name.ilike(search_filter))
+        )
     if last_id is not None:
         stmt = stmt.where(User.id > last_id)
     if key_id is not None:
@@ -253,32 +279,25 @@ async def block_user(
 ):
     logger.info('[ADMIN_BLOCK] admin_id=%s — блокирует и удаляет user_id=%s', admin.id, user_id)
 
-    # 1. Находим самого пользователя
     user_result = await db.execute(select(User).where(User.id == user_id))
     target_user = user_result.scalar_one_or_none()
     
     if not target_user:
         raise HTTPException(status_code=404, detail='Пользователь не найден')
 
-    # Защита админа
     if target_user.role == UserRole.admin and target_user.id != admin.id:
         raise HTTPException(status_code=403, detail='Нельзя удалить другого администратора.')
 
-    # 2. Находим запись в Whitelist (используем scalars().first() для безопасности)
     wl_result = await db.execute(
         select(Whitelist).where(Whitelist.telegram_id == target_user.telegram_id)
     )
     wl_entry = wl_result.scalars().first()
 
-    # 3. Удаляем из Whitelist, если он там есть
     if wl_entry:
         await db.delete(wl_entry)
         logger.info('Запись удалена из whitelist для tg_id=%s', target_user.telegram_id)
 
-    # 4. Удаляем самого пользователя из таблицы User
     await db.delete(target_user)
-    
-    # 5. Один коммит для всех изменений
     await db.commit()
     
     logger.info('[ADMIN_BLOCK] user_id=%s полностью удален из всех таблиц', user_id)
@@ -306,7 +325,6 @@ async def assign_key_to_users(
     if not api_key:
         raise HTTPException(status_code=404, detail='API ключ не найден или неактивен.')
 
-    # Назначаем
     users_result = await db.execute(select(User).where(User.id.in_(data.user_ids)))
     target_users = users_result.scalars().all()
 
@@ -340,6 +358,9 @@ async def get_all_proxies(
     limit:        int           = Query(20, ge=1, le=50),
     key_id:       Optional[int] = Query(None, description='фильтр по api_key_id'),
     owner_id:     Optional[int] = Query(None, description='фильтр по user_id владельца'),
+    country_code: Optional[str] = Query(None, description='Фильтр по коду страны'),
+    expired:      Optional[bool]= Query(None, description='True - только истекшие прокси'),
+    search:       Optional[str] = Query(None, description="Поиск по user, proxy_id, order_id"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -348,10 +369,25 @@ async def get_all_proxies(
     Фильтры: по ключу, по владельцу.
     Сортировка: новые первые.
     '''
-
     logger.info(f'[ADMIN_PROXIES] last_id={last_id} limit={limit}')
-
     stmt = select(Proxy).order_by(Proxy.id.desc())
+    now = datetime.now(timezone.utc)
+
+    if search:
+        search_filter = f'%{search}%'
+        stmt = stmt.where(
+            (Proxy.username.ilike(search_filter)) |
+            (Proxy.ipfoxy_proxy_id.ilike(search_filter)) |
+            (Proxy.ipfoxy_order_id.ilike(search_filter))
+        )
+
+    if country_code:
+        stmt = stmt.where(Proxy.country_code == country_code.upper())
+    
+    if expired is True:
+        stmt = stmt.where(Proxy.expires_at < now)
+    elif expired is False:
+        stmt = stmt.where(Proxy.expires_at > now)
 
     if last_id is not None:
         stmt = stmt.where(Proxy.id < last_id)
@@ -370,7 +406,6 @@ async def get_all_proxies(
 
     logger.debug('[ADMIN_PROXIES] возвращено %d прокси, has_more=%s', len(items), has_more)
     return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
-
 
 @router.get('/proxies/{proxy_id}', response_model=schemas.ProxyDetail)
 async def get_proxy_detail_admin(
@@ -441,6 +476,8 @@ async def get_all_transactions(
     limit:    int           = Query(20, ge=1, le=50),
     key_id:   Optional[int] = Query(None, description='фильтр по api_key_id'),
     user_id_filter: Optional[int] = Query(None, alias='user_id'),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -460,12 +497,17 @@ async def get_all_transactions(
         .outerjoin(ApiKey, Transaction.api_key_id == ApiKey.id)
         .order_by(Transaction.id.desc())
     )
+    
+    if date_from:
+        stmt = stmt.where(Transaction.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(Transaction.created_at <= date_to)
 
-    if last_id is not None:
+    if last_id:
         stmt = stmt.where(Transaction.id < last_id)
-    if key_id is not None:
+    if key_id:
         stmt = stmt.where(Transaction.api_key_id == key_id)
-    if user_id_filter is not None:
+    if user_id_filter:
         stmt = stmt.where(Transaction.user_id == user_id_filter)
 
     stmt = stmt.limit(limit + 1)

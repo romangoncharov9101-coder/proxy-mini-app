@@ -8,12 +8,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, asc
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import func
+from sqlalchemy import select, func, String
 from redis.asyncio import Redis
 
 from backend.database.database import AssyncSessionLocal, get_db
 from backend.database import schemas
-from backend.database.models import User, Regions, Proxy, Transaction, TransactionType, ApiKey
+from backend.database.models import User, Regions, Proxy, Transaction, TransactionType, ApiKey, UserRole
 from backend.utils.security import get_current_user
 from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
@@ -80,6 +80,7 @@ async def get_countries(
     last_id: Optional[int] = Query(None),
     limit:   int = Query(20, ge=1, le=100),
     db:      AsyncSession = Depends(get_db),
+    search:  Optional[str] = Query(None, description="Поиск по названию страны"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -133,6 +134,13 @@ async def get_countries(
                     if countries:
                         await redis_client.setex(CACHE_KEY_COUNTRIES, CACHE_EXPIRE, json.dumps(countries))
 
+            if search and countries:
+                search_val = search.lower()
+                countries = [
+                    c for c in countries 
+                    if search_val in c["country"].lower() or search_val in c["country_code"].lower()
+                ]
+
             # ── Cursor пагинация ──────────────────────────────────────────
             start_index = 0
             if last_id is not None:
@@ -162,6 +170,9 @@ async def get_my_proxies(
     last_id: Optional[int] = Query(None, description="cursor — id последнего полученного прокси"),
     limit:   int = Query(20, ge=1, le=50),
     db:      AsyncSession = Depends(get_db),
+    country_code: Optional[str] = Query(None, description="Фильтр по коду страны"),
+    expired:      Optional[bool]= Query(None, description="True - только истекшие, False - только активные"),
+    search:       Optional[str] = Query(None, description="Поиск по юзеру, proxy_id, order_id"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -178,6 +189,23 @@ async def get_my_proxies(
             )
         .order_by(Proxy.id.desc())
     )
+
+    if search:
+        search_filter = f"%{search}%"
+        stmt = stmt.where(
+            (Proxy.username.ilike(search_filter)) |
+            (func.cast(Proxy.ipfoxy_proxy_id, String).ilike(search_filter)) |
+            (func.cast(Proxy.ipfoxy_order_id, String).ilike(search_filter)) |
+            (Proxy.host.ilike(search_filter))
+        )
+
+    if country_code:
+        stmt = stmt.where(Proxy.country_code == country_code.upper())
+
+    if expired is True:
+        stmt = stmt.where(Proxy.expires_at < now)
+    elif expired is False:
+        stmt = stmt.where(Proxy.expires_at > now)
 
     if last_id is not None:
         stmt = stmt.where(Proxy.id < last_id)

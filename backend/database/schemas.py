@@ -130,6 +130,9 @@ class ProxyPageResponse(BaseModel):
     next_cursor: Optional[int] = None
     has_more: bool
 
+class AutoExtendRequest(BaseModel):
+    auto_extend: bool
+
 # ---- Countries -------------------------------------------------
 class CountryItem(BaseModel):
     id: int

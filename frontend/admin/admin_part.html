@@ -29,6 +29,15 @@
 
         <!-- == ПОДВКЛАДКА: КЛЮЧИ == -->
         <div id="sub-tab-keys" class="p-4 space-y-4">
+            <div class="space-y-2">
+                <input type="text" id="filter-keys-search" placeholder="ПОИСК: API_ID ИЛИ ИМЯ" 
+                    class="w-full border-2 border-black p-2 text-[10px] font-black uppercase focus:bg-zinc-50 outline-none">
+                <select id="filter-keys-status" class="w-full border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                    <option value="">ВСЕ СТАТУСЫ</option>
+                    <option value="true">ТОЛЬКО АКТИВНЫЕ</option>
+                    <option value="false">ДЕАКТИВИРОВАННЫЕ</option>
+                </select>
+            </div>
             <button onclick="openAddKeyModal()"
                 class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
                 + ДОБАВИТЬ API КЛЮЧ
@@ -40,6 +49,8 @@
 
         <!-- == ПОДВКЛАДКА: ПОЛЬЗОВАТЕЛИ == -->
         <div id="sub-tab-users" class="hidden p-4 space-y-4">
+            <input type="text" id="filter-users-search" placeholder="ПОИСК: TG_ID, ИМЯ, USERNAME" 
+                class="w-full border-2 border-black p-2 text-[10px] font-black uppercase outline-none focus:bg-zinc-50">
             <button onclick="openAddUserModal()"
                 class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
                 + ДОБАВИТЬ ПОЛЬЗОВАТЕЛЯ
@@ -53,6 +64,17 @@
     <!-- ВКЛАДКА: ПРОКСИ                                   -->
     <!-- ══════════════════════════════════════════════════ -->
     <div id="admin-proxies-section" class="hidden p-4 space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+            <input type="text" id="filter-proxies-search" placeholder="USERNAME / PROXY_ID / ORDER_ID" 
+                class="col-span-2 border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
+            <input type="text" id="filter-proxies-country" placeholder="СТРАНА (US, UA)" 
+                class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
+            <select id="filter-proxies-expired" class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                <option value="">СРОК: ЛЮБОЙ</option>
+                <option value="false">АКТИВНЫЕ</option>
+                <option value="true">ИСТЕКШИЕ</option>
+            </select>
+        </div>
         <div id="admin-proxies-list" class="space-y-3"></div>
         <div id="admin-proxies-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
     </div>
@@ -61,6 +83,37 @@
     <!-- ВКЛАДКА: ТРАНЗАКЦИИ                               -->
     <!-- ══════════════════════════════════════════════════ -->
     <div id="admin-tx-section" class="hidden p-4 space-y-3">
+        <div class="space-y-2 border-2 border-black p-3 bg-zinc-50">
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-[8px] font-black block mb-1">ОТ (ДАТА):</label>
+                    <input type="date" id="filter-tx-from" 
+                        class="w-full border border-black p-1 text-[10px] font-black uppercase outline-none">
+                </div>
+                <div>
+                    <label class="text-[8px] font-black block mb-1">ДО (ДАТА):</label>
+                    <input type="date" id="filter-tx-to" 
+                        class="w-full border border-black p-1 text-[10px] font-black uppercase outline-none">
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="number" id="filter-tx-user" placeholder="ID ПОЛЬЗОВАТЕЛЯ" 
+                    class="border border-black p-2 text-[10px] font-black uppercase outline-none">
+                <select id="filter-tx-key" class="border border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                    <option value="">ВСЕ КЛЮЧИ</option>
+                    </select>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+                <button onclick="clearTxFilters()" 
+                        class="border-2 border-black p-2 text-[10px] font-black uppercase hover:bg-zinc-100 transition-colors">
+                    ОЧИСТИТЬ
+                </button>
+                <button onclick="resetAndLoadTx()" 
+                        class="bg-black text-white p-2 text-[10px] font-black uppercase hover:bg-zinc-800 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                    ПРИМЕНИТЬ
+                </button>
+            </div>
+        </div>
         <div id="admin-tx-list" class="space-y-3"></div>
         <div id="admin-tx-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
     </div>
@@ -126,9 +179,18 @@ function switchKeysSubTab(tab) {
 ════════════════════════════════════════ */
 async function loadApiKeys() {
     const container = document.getElementById('keys-list');
+
+    const search = document.getElementById('filter-keys-search')?.value || '';
+    const status = document.getElementById('filter-keys-status')?.value || '';
+
     container.innerHTML = '<div class="text-[9px] text-gray-400 font-black text-center py-8 animate-pulse">СИНХРОНИЗАЦИЯ...</div>';
     try {
-        const res = await fetch('/api/v1/admin/keys', { headers: { 'X-TG-Init-Data': TG_INIT } });
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (status) params.append('is_active', status)
+
+        const res = await fetch(`/api/v1/admin/keys?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
+
         if (!res.ok) throw new Error(res.status);
         const keys = await res.json();
 
@@ -138,6 +200,7 @@ async function loadApiKeys() {
         }
         container.innerHTML = '';
         keys.forEach(k => container.appendChild(buildKeyCard(k)));
+        updateTxKeySelect(keys);
     } catch(e) {
         container.innerHTML = '<div class="text-red-500 text-[9px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ</div>';
     }
@@ -178,11 +241,30 @@ async function deleteApiKey(id) {
     else window.Telegram.WebApp.showAlert('ОШИБКА УДАЛЕНИЯ');
 }
 
+function updateTxKeySelect(keys) {
+    const select = document.getElementById('filter-tx-key');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">ВСЕ КЛЮЧИ</option>';
+    keys.forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k.id;
+        opt.textContent = k.key_name.toUpperCase();
+        select.appendChild(opt);
+    });
+    select.value = currentVal;
+}
+
 /* ════════════════════════════════════════
    ПОЛЬЗОВАТЕЛИ
 ════════════════════════════════════════ */
 async function loadNextUsersPage() {
     if (!adminUsersState.hasMore || adminUsersState.isLoading) return;
+
+    const container = document.getElementById('admin-users-list');
+    const statusEl = document.getElementById('admin-users-status');
+    const search = document.getElementById('filter-users-search')?.value || '';
+
     adminUsersState.isLoading = true;
     const status = document.getElementById('admin-users-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
@@ -190,11 +272,12 @@ async function loadNextUsersPage() {
     try {
         const params = new URLSearchParams({ limit: 30 });
         if (adminUsersState.nextCursor != null) params.append('last_id', adminUsersState.nextCursor);
+        if (search) params.append('search', search);
+
         const res = await fetch(`/api/v1/admin/users?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);
         const items = await res.json();
 
-        const container = document.getElementById('admin-users-list');
         if (!items.length && !adminUsersState.nextCursor) {
             container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">ПОЛЬЗОВАТЕЛЕЙ НЕТ</div>';
             adminUsersState.hasMore = false;
@@ -203,7 +286,8 @@ async function loadNextUsersPage() {
             adminUsersState.nextCursor = items.length === 30 ? items[items.length-1].id : null;
             adminUsersState.hasMore    = items.length === 30;
         }
-        status.innerText = adminUsersState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : '';
+
+        status.innerText = adminUsersState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : 'КОНЕЦ СПИСКА';
     } catch(e) {
         status.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
     } finally { adminUsersState.isLoading = false; }
@@ -249,17 +333,28 @@ async function blockUser(userId, name) {
 async function loadNextAdminProxiesPage() {
     if (!adminProxiesState.hasMore || adminProxiesState.isLoading) return;
     adminProxiesState.isLoading = true;
+
+    const container = document.getElementById('admin-proxies-list');
+    const statusEl = document.getElementById('admin-proxies-status');
+
+    const search = document.getElementById('filter-proxies-search').value;
+    const country = document.getElementById('filter-proxies-country').value;
+    const expired = document.getElementById('filter-proxies-expired').value;
+
     const status = document.getElementById('admin-proxies-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
 
     try {
         const params = new URLSearchParams({ limit: 20 });
         if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
+        if (search) params.append('search', search);
+        if (country) params.append('country_code', country);
+        if (expired) params.append('expired', expired);
+
         const res = await fetch(`/api/v1/admin/proxies?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);
         const data = await res.json();
 
-        const container = document.getElementById('admin-proxies-list');
         if (!data.items.length && !adminProxiesState.nextCursor) {
             container.innerHTML = '<div class="text-[9px] text-gray-300 font-black text-center py-10 border-2 border-dashed border-zinc-200">ПРОКСИ НЕТ</div>';
         } else {
@@ -297,6 +392,7 @@ function buildAdminProxyCard(p) {
     const dot = getStatusClass(p);
     const expires = p.expires_at ? new Date(p.expires_at).toLocaleDateString('ru-RU') : '—';
     const el = document.createElement('div');
+    const flagCode = p.country_code ? p.country_code.toLowerCase() : 'un';
     el.className = 'border-2 border-black p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:bg-zinc-50 transition-all';
     el.onclick = () => openAdminProxyDetail(p.id);
     el.innerHTML = `
@@ -306,7 +402,7 @@ function buildAdminProxyCard(p) {
                 <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
             </div>
             <div>
-                <img src="https://flagcdn.com/w40/${p.country_code.toLowerCase()}.png" 
+                <img src="https://flagcdn.com/w40/${flagCode}.png" 
                     class="w-6 h-4 border border-black object-cover" 
                     onerror="this.src='https://placehold.co/40x30?text=?'">
                 <span class="text-[8px] font-bold text-gray-400 shrink-0 ml-2">${(p.country_code||'—')}</span>
@@ -326,12 +422,24 @@ function buildAdminProxyCard(p) {
 async function loadNextAdminTxPage() {
     if (!adminTxState.hasMore || adminTxState.isLoading) return;
     adminTxState.isLoading = true;
+
     const status = document.getElementById('admin-tx-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+
+    const dateFrom = document.getElementById('filter-tx-from').value;
+    const dateTo = document.getElementById('filter-tx-to').value;
+    const userId = document.getElementById('filter-tx-user').value;
+    const keyId = document.getElementById('filter-tx-key').value;
 
     try {
         const params = new URLSearchParams({ limit: 20 });
         if (adminTxState.nextCursor != null) params.append('last_id', adminTxState.nextCursor);
+
+        if (dateFrom) params.append('date_from', dateFrom);
+        if (dateTo) params.append('date_to', dateTo);
+        if (userId) params.append('user_id', userId);
+        if (keyId) params.append('key_id', keyId);
+
         const res = await fetch(`/api/v1/admin/transactions?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);
         const data = await res.json();
@@ -367,5 +475,57 @@ function buildTxCard(tx) {
         <div class="text-[8px] font-bold text-gray-300">${date}${tx.description ? ' · '+tx.description : ''}</div>
     `;
     return el;
+}
+
+function resetAndLoadTx() {
+    adminTxState = {nextCursor: null, hasMore: true, isLoading: false};
+    document.getElementById('admin-tx-list').innerHTML = '';
+    loadNextAdminTxPage();
+}
+
+function clearTxFilters() {
+    const inputs = [
+        'filter-tx-from', 
+        'filter-tx-to', 
+        'filter-tx-user', 
+        'filter-tx-key'
+    ];
+
+    inputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    resetAndLoadTx();
+}
+
+/* ════════════════════════════════════════
+   ВСПОМОГАТЕЛЬНЫЕ (ADMIN)
+════════════════════════════════════════ */
+let filterTimeout;
+function debounceFilter(callback) {
+    clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(callback, 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('filter-keys-search').oninput = () => debounceFilter(loadApiKeys);
+    document.getElementById('filter-keys-status').onchange = loadApiKeys;
+
+    document.getElementById('filter-users-search').oninput = () => {
+        adminUsersState = {nextCursor: null, hasMore: true, isLoading: false};
+        document.getElementById('admin-users-list').innerHTML = '';
+        debounceFilter(loadNextUsersPage);
+    };
+
+    document.getElementById('filter-proxies-search').oninput = () => resetAndReloadProxies();
+    document.getElementById('filter-proxies-country').oninput = () => resetAndReloadProxies();
+    document.getElementById('filter-proxies-expired').onchange = () => resetAndReloadProxies();
+});
+
+function resetAndReloadProxies() {
+    adminProxiesState = {nextCursor: null, hasMore: true, isLoading: false};
+    document.getElementById('admin-proxies-list').innerHTML = '';
+    debounceFilter(loadNextAdminProxiesPage);
 }
 </script>
