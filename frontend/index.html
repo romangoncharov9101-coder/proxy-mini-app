@@ -10,44 +10,65 @@
 {% include "admin/admin_part.html" %}
 
 <script>
+let CURRENT_ROLE = null;
+
 function renderInterface(user) {
-    document.getElementById('page-loader').classList.add('hidden');
+    CURRENT_ROLE = user.role;
+
+    document.getElementById('page-loader')?.classList.add('hidden');
 
     if (user.role === 'admin') {
-        document.getElementById('admin-layout').classList.remove('hidden');
+        document.getElementById('user-layout')?.classList.add('hidden');
+        document.getElementById('admin-layout')?.classList.remove('hidden');
+
         if (typeof initAdmin === 'function') initAdmin();
     } else {
-        document.getElementById('user-layout').classList.remove('hidden');
+        document.getElementById('admin-layout')?.classList.add('hidden');
+        document.getElementById('user-layout')?.classList.remove('hidden');
+
         if (typeof initUser === 'function') initUser();
     }
 }
 
-document.getElementById('main-scroll').addEventListener('scroll', function() {
+document.getElementById('main-scroll')?.addEventListener('scroll', function() {
     const sc = this;
     const nearBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 220;
     if (!nearBottom) return;
 
-    const marketTab = document.getElementById('tab-content-market');
-    if (marketTab && !marketTab.classList.contains('hidden')) {
-        if (typeof loadNextMarketPage === 'function') loadNextMarketPage();
+    if (CURRENT_ROLE === 'user') {
+        const marketTab = document.getElementById('tab-content-market');
+        if (marketTab && !marketTab.classList.contains('hidden')) {
+            if (typeof loadNextMarketPage === 'function') loadNextMarketPage();
+            return;
+        }
+
+        const proxyTab = document.getElementById('tab-content-proxies');
+        if (proxyTab && !proxyTab.classList.contains('hidden')) {
+            if (typeof loadNextProxyPage === 'function') loadNextProxyPage();
+            return;
+        }
     }
-    const proxyTab = document.getElementById('tab-content-proxies');
-    if (proxyTab && !proxyTab.classList.contains('hidden')) {
-        if (typeof loadNextProxyPage === 'function') loadNextProxyPage();
-    }
-    const adminProxies = document.getElementById('admin-proxies-section');
-    if (adminProxies && !adminProxies.classList.contains('hidden')) {
-        if (typeof loadNextAdminProxiesPage === 'function') loadNextAdminProxiesPage();
-    }
-    const adminTx = document.getElementById('admin-tx-section');
-    if (adminTx && !adminTx.classList.contains('hidden')) {
-        if (typeof loadNextAdminTxPage === 'function') loadNextAdminTxPage();
-    }
-    const adminUsers = document.getElementById('admin-users-list');
-    if (adminUsers && document.getElementById('admin-keys-section') && 
-        !document.getElementById('admin-keys-section').classList.contains('hidden')) {
-        if (typeof loadNextUsersPage === 'function') loadNextUsersPage();
+
+    if (CURRENT_ROLE === 'admin') {
+        const adminProxies = document.getElementById('admin-proxies-section');
+        if (adminProxies && !adminProxies.classList.contains('hidden')) {
+            if (typeof loadNextAdminProxiesPage === 'function') loadNextAdminProxiesPage();
+            return;
+        }
+
+        const adminTx = document.getElementById('admin-tx-section');
+        if (adminTx && !adminTx.classList.contains('hidden')) {
+            if (typeof loadNextAdminTxPage === 'function') loadNextAdminTxPage();
+            return;
+        }
+
+        const adminKeys = document.getElementById('admin-keys-section');
+        if (adminKeys && !adminKeys.classList.contains('hidden')) {
+            if (typeof loadNextUsersPage === 'function') loadNextUsersPage();
+            return;
+        }
     }
 });
 </script>
+
 {% endblock %}

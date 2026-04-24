@@ -1,32 +1,71 @@
 <div id="user-layout" class="hidden">
+
+    <!-- Навигация -->
     <nav class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
         <div id="tab-proxies" onclick="switchUserTab('proxies')"
-             class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">
-            Мои прокси
+             class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer transition-all">
+            МОИ ПРОКСИ
         </div>
         <div id="tab-market" onclick="switchUserTab('market')"
-             class="flex-1 flex items-center justify-center cursor-pointer hover:bg-zinc-100">
-            Маркет
+             class="flex-1 flex items-center justify-center cursor-pointer hover:bg-zinc-100 transition-all">
+            МАРКЕТ
         </div>
     </nav>
 
-    <div class="p-4">
+    <div class="p-4 space-y-3">
+
+        <!-- ══ ВКЛАДКА: МОИ ПРОКСИ ══ -->
         <section id="tab-content-proxies">
+            <!-- Поиск и фильтры -->
+            <div class="space-y-2 mb-3">
+                <input type="text" id="proxy-search"
+                       placeholder="ПОИСК (IP, HOSTNAME, ORDER ID)..."
+                       oninput="debounceProxySearch()"
+                       class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
+                <div class="flex gap-2">
+                    <select id="proxy-country-filter" onchange="resetAndReloadProxies()"
+                            class="flex-1 bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none">
+                        <option value="">ВСЕ СТРАНЫ</option>
+                    </select>
+                    <select id="proxy-status-filter" onchange="resetAndReloadProxies()"
+                            class="flex-1 bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none">
+                        <option value="all">ВСЕ</option>
+                        <option value="active">АКТИВНЫЕ</option>
+                        <option value="expired">ИСТЕКШИЕ</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Список прокси (контейнер) -->
+            <div id="user-proxies-container" class="space-y-3"></div>
+            <div id="user-proxies-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
+
+            <!-- Подключаем логику прокси (БЕЗ дублирования контейнера) -->
             {% include "user/tabs/proxies.html" %}
         </section>
+
+        <!-- ══ ВКЛАДКА: МАРКЕТ ══ -->
         <section id="tab-content-market" class="hidden">
-            <div class="mb-4">
-                <input type="text" id="country-search" 
-                       placeholder="НАЙТИ СТРАНУ..." 
+            <!-- Поиск по странам -->
+            <div class="mb-3">
+                <input type="text" id="country-search"
+                       placeholder="НАЙТИ СТРАНУ..."
                        oninput="debounceCountrySearch()"
-                       class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
+                       class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
             </div>
+
+            <!-- Список стран (контейнер) -->
+            <div id="countries-container" class="space-y-3"></div>
+            <div id="market-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
+
+            <!-- Подключаем логику маркета (БЕЗ дублирования контейнера) -->
             {% include "user/tabs/market.html" %}
         </section>
+
     </div>
 </div>
 
-<!-- Модал успешной покупки -->
+<!-- Модал: успешная покупка -->
 <div id="purchase-success-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
     <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
         <div class="bg-black text-white p-4 text-center">
@@ -43,7 +82,7 @@
     </div>
 </div>
 
-<!-- Модал ошибки покупки -->
+<!-- Модал: ошибка покупки -->
 <div id="purchase-error-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
     <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
         <div class="bg-black text-white p-4 text-center">
@@ -61,51 +100,67 @@
 </div>
 
 <script>
-let proxyState = { nextCursor: null, hasMore: true, isLoading: false };
-let countryState = { nextCursor: null, hasMore: true, isLoading: false };
-let searchTimeout = null;
+let marketState  = { nextCursor: null, hasMore: true, isLoading: false };
+
+let _proxySearchTimeout  = null;
+let _countrySearchTimeout = null;
 
 async function initUser() {
-    await initProxiesTab();
+    await resetAndReloadProxies();
 }
 
+// ── Переключение вкладок ──
 function switchUserTab(tab) {
-    const tabs = ['proxies', 'market'];
-    tabs.forEach(t => {
+    ['proxies', 'market'].forEach(t => {
         document.getElementById('tab-content-' + t).classList.toggle('hidden', t !== tab);
-        const el = document.getElementById('tab-' + t);
-        if (t === tab) {
-            el.classList.add('bg-black', 'text-white');
-            el.classList.remove('hover:bg-zinc-100');
-        } else {
-            el.classList.remove('bg-black', 'text-white');
-            el.classList.add('hover:bg-zinc-100');
-        }
+        const navEl = document.getElementById('tab-' + t);
+        navEl.classList.toggle('bg-black',    t === tab);
+        navEl.classList.toggle('text-white',  t === tab);
+        navEl.classList.toggle('hover:bg-zinc-100', t !== tab);
     });
 
-    if (tab === 'market' && typeof initMarketLogic === 'function') {
+    if (tab === 'market') {
         const container = document.getElementById('countries-container');
-        if (container && container.children.length === 0) initMarketLogic();
-    }
-    if (tab === 'proxies') {
-        const container = document.getElementById('user-proxies-container');
-        if (container && container.children.length === 0) initProxiesTab();
+        // Грузим только если контейнер пустой
+        if (container && container.children.length === 0) {
+            resetAndReloadMarket();
+        }
     }
 }
 
+// ── Debounce для поиска ──
+function debounceProxySearch() {
+    clearTimeout(_proxySearchTimeout);
+    _proxySearchTimeout = setTimeout(() => resetAndReloadProxies(), 450);
+}
+
+function debounceCountrySearch() {
+    clearTimeout(_countrySearchTimeout);
+    _countrySearchTimeout = setTimeout(() => resetAndReloadMarket(), 400);
+}
+
+// ── Сброс и перезагрузка маркета ──
+function resetAndReloadMarket() {
+    marketState = { nextCursor: null, hasMore: true, isLoading: false };
+    const container = document.getElementById('countries-container');
+    if (container) container.innerHTML = '';
+    loadNextMarketPage(); // определена в market.html
+}
+
+// ── Публичные функции покупки ──
 function showPurchaseSuccess(orderData) {
     const info = document.getElementById('purchase-success-info');
-    info.innerHTML = `
+    if (info) info.innerHTML = `
         <div class="flex justify-between"><span>ЗАКАЗ</span><span class="font-black">#${orderData.order_id}</span></div>
         <div class="flex justify-between"><span>КУПЛЕНО</span><span class="font-black">${orderData.count} ШТ.</span></div>
     `;
-    document.getElementById('purchase-success-modal').classList.remove('hidden');
-    proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
-    document.getElementById('user-proxies-container').innerHTML = '';
+    document.getElementById('purchase-success-modal')?.classList.remove('hidden');
+    resetAndReloadProxies();
 }
 
 function showPurchaseError(message) {
-    document.getElementById('purchase-error-info').innerText = message;
-    document.getElementById('purchase-error-modal').classList.remove('hidden');
+    const info = document.getElementById('purchase-error-info');
+    if (info) info.innerText = message;
+    document.getElementById('purchase-error-modal')?.classList.remove('hidden');
 }
 </script>

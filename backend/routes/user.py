@@ -134,14 +134,18 @@ async def get_countries(
                     if countries:
                         await redis_client.setex(CACHE_KEY_COUNTRIES, CACHE_EXPIRE, json.dumps(countries))
 
-            if search and countries:
-                search_val = search.lower()
+            # ── Фильтрация по поиску ──────────────────────────────────────
+            if search:
+                search_val = search.lower().strip()
                 countries = [
-                    c for c in countries 
+                    c for c in countries
                     if search_val in c["country"].lower() or search_val in c["country_code"].lower()
                 ]
+                # При поиске cursor не используем: возвращаем все совпадения за один запрос
+                logger.debug("[COUNTRIES] поиск '%s' — найдено %d", search_val, len(countries))
+                return {"items": countries, "next_cursor": None, "has_more": False}
 
-            # ── Cursor пагинация ──────────────────────────────────────────
+            # ── Cursor пагинация (только без поиска) ─────────────────────
             start_index = 0
             if last_id is not None:
                 for i, c in enumerate(countries):
@@ -182,11 +186,7 @@ async def get_my_proxies(
     now = datetime.now(timezone.utc)
     stmt = (
         select(Proxy)
-        .where(
-            Proxy.owner_id == current_user.id,
-            Proxy.is_active == True,
-            Proxy.expires_at > now
-            )
+        .where(Proxy.owner_id == current_user.id)
         .order_by(Proxy.id.desc())
     )
 
@@ -220,6 +220,9 @@ async def get_my_proxies(
     next_cursor = items[-1].id if has_more and items else None
 
     logger.debug("[PROXIES] user_id=%s — %d прокси, has_more=%s", current_user.id, len(items), has_more)
+    print('='*50)
+    print(items)
+    print('='*50)
 
     return {
         "items":       items,
@@ -398,3 +401,40 @@ async def purchase_proxy_endpoint(
         await db.rollback()
         logger.error("[PURCHASE] user_id=%s — ошибка: %s", current_user.id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {exc}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH /proxies/{proxy_id}/auto-extend
+# ─────────────────────────────────────────────────────────────────────────────
+from pydantic import BaseModel as _AEModel
+
+class AutoExtendRequest(_AEModel):
+    auto_extend: bool
+
+@router.patch("/proxies/{proxy_id}/auto-extend")
+async def set_auto_extend(
+    proxy_id: int,
+    data: AutoExtendRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Включить / выключить автопродление прокси.
+    Администратор может менять любой прокси, пользователь — только свои.
+    """
+    logger.info("[AUTO_EXTEND] user_id=%s proxy_id=%s → %s", current_user.id, proxy_id, data.auto_extend)
+
+    if current_user.role == UserRole.admin:
+        stmt = select(Proxy).where(Proxy.id == proxy_id)
+    else:
+        stmt = select(Proxy).where(Proxy.id == proxy_id, Proxy.owner_id == current_user.id)
+
+    result = await db.execute(stmt)
+    proxy = result.scalar_one_or_none()
+
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Прокси не найден")
+
+    proxy.auto_extend = data.auto_extend
+    await db.commit()
+    logger.info("[AUTO_EXTEND] proxy_id=%s auto_extend=%s — OK", proxy_id, data.auto_extend)
+    return {"proxy_id": proxy_id, "auto_extend": data.auto_extend}
