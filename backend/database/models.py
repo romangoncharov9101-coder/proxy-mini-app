@@ -12,6 +12,7 @@ class UserRole(str, enum.Enum):
 class TransactionType(str, enum.Enum):
     purchase = 'purchase'
     renewal = 'renewal'
+    extend = 'extend'
 
 class Whitelist(Base):
     """

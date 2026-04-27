@@ -10,14 +10,38 @@
     </div>
 </div>
 
+<div id="extend-success-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 text-center">
+            <div class="text-3xl font-black mb-1">UP</div>
+            <div class="text-[10px] font-black tracking-widest">ПРОКСИ ПРОДЛЕНЫ</div>
+        </div>
+        <div class="p-6 space-y-3">
+            <div id="extend-success-info" class="text-[10px] font-bold text-gray-600 space-y-1 border-2 border-black p-3 bg-zinc-50"></div>
+            <button onclick="smartCloseModal('extend-success-modal')"
+                class="w-full bg-black text-white py-3 text-[10px] font-black hover:invert transition-all">
+                ЗАКРЫТЬ
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="user-proxies-container"></div>
+
+{% include 'user/modals/extend_proxy_modal.html' %}
+
+<script src="/static/js/proxies.js"></script>
+
 <script>
 let proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
+let _selectedProxyIds = new Set();
+let _selectionMode = false;
 
 const USER_PROXIES_API = '/api/v1/user/proxies';
 
 async function resetAndReloadProxies() {
     proxyListState = { nextCursor: null, hasMore: true, isLoading: false };
-
+    clearProxySelection();
     const container = document.getElementById('user-proxies-container');
     if (container) container.innerHTML = '';
 
@@ -91,49 +115,125 @@ function renderProxyItems(items) {
     const container = document.getElementById('user-proxies-container');
     if (!container) return;
 
+    // Выносим "сейчас" за цикл для производительности
+    const now = new Date();
+
     items.forEach(p => {
         const isActive = p.is_active;
         const expiresDate = p.expires_at ? new Date(p.expires_at) : null;
-        const now = new Date();
-
         const daysLeft = expiresDate ? Math.ceil((expiresDate - now) / 86400000) : null;
+        
         const isExpired = daysLeft !== null && daysLeft <= 0;
         const isUrgent = daysLeft !== null && daysLeft <= 3 && daysLeft > 0;
-        let dotColor = 'bg-red-500';
         
+        let dotColor = 'bg-red-500';
         if (isActive && !isExpired) {
-            if (isUrgent) {
-                dotColor = 'bg-yellow-500';
-            } else {
-                dotColor = 'bg-green-500';
-            }
+            dotColor = isUrgent ? 'bg-yellow-500' : 'bg-green-500';
         }
 
         const expiresStr = expiresDate ? expiresDate.toLocaleDateString('ru-RU') : '—';
 
         const el = document.createElement('div');
-        el.className = `border-2 ${isUrgent ? 'border-yellow-500' : (isExpired || !isActive ? 'border-black opacity-80' : 'border-black')} p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:bg-zinc-50 transition-all`;
+        // Стили всей карточки: добавил четкие отступы и легкий бордер-т для разделения зон внутри
+        el.className = `group border-2 ${isUrgent ? 'border-yellow-500' : (isExpired || !isActive ? 'border-black opacity-80' : 'border-black')} 
+                        p-0 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all`;
         
         el.onclick = () => openProxyDetail(p.id);
 
         el.innerHTML = `
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2 min-w-0">
-                    <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
-                    <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
+            <div class="p-3 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="shrink-0" onclick="event.stopPropagation(); toggleProxySelect(${p.id}, event)">
+                        <div id="proxy-check-${p.id}" class="w-5 h-5 border-2 border-black flex items-center justify-center transition-all bg-white">
+                            <span class="text-[10px] font-black text-white hidden proxy-check-icon-${p.id}">✓</span>
+                        </div>
+                    </div>
+
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
+                            <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
+                        </div>
+                        <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
+                            ${p.type || 'socks5'} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
+                        </div>
+                    </div>
                 </div>
-                <span class="text-[9px] font-black text-gray-400 shrink-0 ml-2">${(p.ip_type || '').replace(/_/g, ' ')}</span>
+
+                <div class="shrink-0 bg-black text-white px-2 py-1 text-[10px] font-black uppercase italic">
+                    ${(p.country_code || '??').toUpperCase()}
+                </div>
             </div>
-            <div class="flex justify-between mt-1 text-[9px] font-bold text-gray-400">
-                <span>${(p.country_code || '—').toUpperCase()} · ${p.type || 'socks5'}</span>
-                <span class="${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : '')}">
-                    ${isExpired ? 'ИСТЕК' : `ДО: ${expiresStr} (${daysLeft}д)`}
-                </span>
+
+            <div class="border-t border-black/10 mx-3"></div>
+
+            <div class="p-3 pt-2 flex items-center justify-between">
+                <div class="flex flex-col">
+                    <span class="text-[8px] font-black text-gray-400 uppercase leading-none mb-1">Срок действия:</span>
+                    <span class="text-[10px] font-black ${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : 'text-black')}">
+                        ${isExpired ? 'СРОК ИСТЕК' : `${expiresStr} (${daysLeft}д.)`}
+                    </span>
+                </div>
+
+                <button onclick="event.stopPropagation(); openExtendModal([${p.id}])"
+                    class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
+                    + ПРОДЛИТЬ
+                </button>
             </div>
         `;
 
         container.appendChild(el);
     });
+}
+
+function handleProxyCardClick(proxyId, event) {
+    if (_selectionMode) {
+        toggleProxySelect(proxyId, event);
+    } else {
+        openProxyDetail(proxyId);
+    }
+}
+ 
+function toggleProxySelect(proxyId, event) {
+    event.stopPropagation();
+    const checkBox  = document.getElementById('proxy-check-' + proxyId);
+    const checkIcons = document.querySelectorAll('.proxy-check-icon-' + proxyId);
+ 
+    if (_selectedProxyIds.has(proxyId)) {
+        _selectedProxyIds.delete(proxyId);
+        if (checkBox) checkBox.classList.remove('bg-black');
+        checkIcons.forEach(function(ic) { ic.classList.add('hidden'); });
+    } else {
+        _selectedProxyIds.add(proxyId);
+        if (checkBox) checkBox.classList.add('bg-black');
+        checkIcons.forEach(function(ic) { ic.classList.remove('hidden'); });
+    }
+ 
+    _selectionMode = _selectedProxyIds.size > 0;
+    _updateSelectionBar();
+}
+ 
+function clearProxySelection() {
+    _selectedProxyIds.forEach(function(id) {
+        var cb = document.getElementById('proxy-check-' + id);
+        if (cb) cb.classList.remove('bg-black');
+        document.querySelectorAll('.proxy-check-icon-' + id).forEach(function(ic) { ic.classList.add('hidden'); });
+    });
+    _selectedProxyIds.clear();
+    _selectionMode = false;
+    _updateSelectionBar();
+}
+ 
+function _updateSelectionBar() {
+    var bar     = document.getElementById('user-proxy-selection-bar');
+    var countEl = document.getElementById('user-proxy-selection-count');
+    if (!bar) return;
+    if (_selectedProxyIds.size > 0) {
+        bar.classList.remove('hidden');
+        if (countEl) countEl.innerText = 'ВЫБРАНО: ' + _selectedProxyIds.size;
+    } else {
+        bar.classList.add('hidden');
+    }
 }
 
 async function openProxyDetail(proxyId) {

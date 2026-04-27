@@ -130,6 +130,10 @@ class ProxyPageResponse(BaseModel):
     next_cursor: Optional[int] = None
     has_more: bool
 
+class ExtendProxyRequest(BaseModel):
+    proxy_ids: list[int]
+    days: int
+
 class AutoExtendRequest(BaseModel):
     auto_extend: bool
 

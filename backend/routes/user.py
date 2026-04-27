@@ -275,6 +275,27 @@ async def calculate_order_price(
         )
     service, _ = service_data
 
+    ipfoxy_proxy_ids = None
+    if order_data.proxy_ids:
+        if current_user.role == UserRole.admin:
+            stmt = select(Proxy).where(Proxy.id.in_(order_data.proxy_ids))
+        else:
+            stmt = select(Proxy).where(
+                Proxy.id.in_(order_data.proxy_ids),
+                Proxy.owner_id == current_user.id,
+            )
+        result = await db.execute(stmt)
+        proxies_for_price = result.scalars().all()
+
+        ipfoxy_proxy_ids = [p.ipfoxy_proxy_id for p in proxies_for_price if p.ipfoxy_proxy_id]
+        if not ipfoxy_proxy_ids:
+            raise HTTPException(status_code=400, detail="Не удалось найти внешние ID для выбранных прокси")
+
+        logger.info(
+            "[CALC_PRICE] конвертация DB-ids=%s -> ipfoxy_ids=%s",
+            order_data.proxy_ids, ipfoxy_proxy_ids,
+        )
+
     try:
         price = await service.get_order_price(
             order_type=order_data.order_type,
@@ -402,18 +423,10 @@ async def purchase_proxy_endpoint(
         logger.error("[PURCHASE] user_id=%s — ошибка: %s", current_user.id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {exc}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PATCH /proxies/{proxy_id}/auto-extend
-# ─────────────────────────────────────────────────────────────────────────────
-from pydantic import BaseModel as _AEModel
-
-class AutoExtendRequest(_AEModel):
-    auto_extend: bool
-
 @router.patch("/proxies/{proxy_id}/auto-extend")
 async def set_auto_extend(
     proxy_id: int,
-    data: AutoExtendRequest,
+    data: schemas.AutoExtendRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -438,3 +451,96 @@ async def set_auto_extend(
     await db.commit()
     logger.info("[AUTO_EXTEND] proxy_id=%s auto_extend=%s — OK", proxy_id, data.auto_extend)
     return {"proxy_id": proxy_id, "auto_extend": data.auto_extend}
+
+@router.post('/proxies/extend')
+async def extend_proxies(
+    request: schemas.ExtendProxyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Ручное продление одного или нескольких прокси на N дней.
+    Администратор может продлевать любые прокси, пользователь — только свои.
+    Алгоритм: расчёт цены -> проверка баланса -> вызов /proxy-extend -> обновление БД.
+    """
+    if not request.proxy_ids:
+        raise HTTPException(status_code=400, detail='Список proxy_ids пуст')
+    if request.days < 1:
+        raise HTTPException(status_code=400, detail='days должен быть 30, 90, 180, 360')
+    logger.info(f'[EXTEND] user_id={current_user.id} proxy_ids={request.proxy_ids} days={request.days}')
+
+    if current_user.role == UserRole.admin:
+        stmt = select(Proxy).where(Proxy.id.in_(request.proxy_ids))
+    else:
+        stmt = select(Proxy).where(Proxy.id.in_(request.proxy_ids), Proxy.owner_id == current_user.id)
+    
+    result = await db.execute(stmt)
+    proxies = result.scalars().all()
+
+    if not proxies:
+        raise HTTPException(status_code=404, detail='Прокси не найдены или у вас нет доступа')
+    
+    if len(proxies) != len(request.proxy_ids):
+        raise HTTPException(status_code=403, detail='Некоторые прокси не найдены или принадлежат другому пользователю')
+    
+    service_data = await IPFoxyService.get_service_by_user(db, current_user)
+    if not service_data:
+        raise HTTPException(status_code=400, detail='К вашему аккаунту не привязан активный API ключ. обратитесь к администратору.')
+    
+    service, user_api_key = service_data
+    ipfoxy_ids = [p.ipfoxy_proxy_id for p in proxies if p.ipfoxy_proxy_id]
+
+    if not ipfoxy_ids:
+        raise HTTPException(status_code=400, detail='У выбранных прокси нет внешних API дляя проверки')
+
+    proxy_ids_str = ','.join(str(pid) for pid in ipfoxy_ids)
+    try:
+        total_cost = await service.get_order_price(
+            order_type = 'EXTEND',
+            days=request.days,
+            proxy_ids=ipfoxy_ids
+        )
+    except Exception as exc:
+        logger.error("[EXTEND] ошибка расчёта цены: %s", exc)
+        raise HTTPException(status_code=500, detail="Ошибка при расчёте стоимости продления")
+    
+    current_balance = user_api_key.balance or Decimal('0.00')
+    if current_balance < total_cost:
+        raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD, требуется: {total_cost} USD')
+    
+    try:
+        await service.renew_proxy(proxy_ids=proxy_ids_str, days=request.days)
+    except Exception as exc:
+        logger.error("[EXTEND] ошибка вызова renew_proxy: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Ошибка при продлении прокси: {exc}")
+    
+    now = datetime.now(timezone.utc)
+    for proxy in proxies:
+        old_expires = proxy.expires_at
+        if old_expires and old_expires.replace(tzinfo=timezone.utc) > now:
+            proxy.expires_at = old_expires + timedelta(days=request.days)
+        else:
+            proxy.expires_at = now + timedelta(days=request.days)
+
+    user_api_key.balance = current_balance - total_cost
+
+    tx = Transaction(
+        user_id=current_user.id,
+        api_key_id=user_api_key.id,
+        type=TransactionType.extend,
+        amount=-total_cost,
+        description=f"Продление {len(proxies)} прокси на {request.days} дн. ({proxy_ids_str})",
+    )
+    db.add(tx)
+    await db.commit()
+
+    logger.info(
+        "[EXTEND] OK user_id=%s proxies=%s days=%s cost=%s",
+        current_user.id, len(proxies), request.days, total_cost,
+    )
+    return {
+        "status": "success",
+        "extended": len(proxies),
+        "days": request.days,
+        "total_cost": str(total_cost),
+    }

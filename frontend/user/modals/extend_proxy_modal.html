@@ -1,0 +1,176 @@
+<div id="extend-modal-overlay" class="modal-overlay fixed inset-0 bg-black/80 z-[110] flex items-end justify-center hidden">
+    <div class="bg-white border-t-[3px] border-black w-full max-w-md shadow-[0_-8px_0px_0px_rgba(0,0,0,1)] flex flex-col max-h-[80vh]">
+ 
+        <!-- Шапка -->
+        <div class="border-b-[3px] border-black p-3 bg-white flex justify-between items-center shrink-0">
+            <h3 id="extend-modal-title" class="text-sm font-black uppercase tracking-tighter">ПРОДЛЕНИЕ ПРОКСИ</h3>
+            <button onclick="closeExtendModal()" class="hover:bg-black hover:text-white border-2 border-black w-8 h-8 flex items-center justify-center transition-all">
+                <span class="text-xl leading-none">×</span>
+            </button>
+        </div>
+ 
+        <div class="p-5 overflow-y-auto no-scrollbar">
+ 
+            <!-- Шаг 1: Выбор срока -->
+            <div id="extend-step-duration" class="space-y-4">
+                <div id="extend-selected-count" class="text-[9px] font-black text-gray-400 uppercase border-2 border-black p-2 bg-zinc-50 text-center"></div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-2 h-2 bg-black animate-pulse"></div>
+                    <span class="text-[10px] font-black uppercase">ВЫБЕРИТЕ ПЕРИОД ПРОДЛЕНИЯ (ДНЕЙ):</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="extendSelectDuration(30)"  class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">30</button>
+                    <button onclick="extendSelectDuration(90)"  class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">90</button>
+                    <button onclick="extendSelectDuration(180)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">180</button>
+                    <button onclick="extendSelectDuration(360)" class="border-2 border-black py-3 font-black text-sm hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">360</button>
+                </div>
+            </div>
+ 
+            <!-- Шаг 2: Подтверждение цены -->
+            <div id="extend-step-confirm" class="hidden space-y-4">
+                <div class="border-[3px] border-black p-4 bg-zinc-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[10px] font-black uppercase">ИТОГО К ОПЛАТЕ:</span>
+                        <div class="w-2 h-2 bg-green-500 animate-pulse"></div>
+                    </div>
+                    <div id="extend-price-display" class="text-3xl font-black tracking-tighter">0.00 USD</div>
+                    <div class="mt-2 text-[9px] text-gray-500 font-bold uppercase leading-tight">
+                        СРОК: <span id="extend-summary-duration">0</span> ДН. &nbsp;|&nbsp; ПРОКСИ: <span id="extend-summary-count">0</span> ШТ.
+                    </div>
+                </div>
+                <button onclick="executeExtend()" id="extend-confirm-btn"
+                    class="w-full bg-black text-white border-2 border-black py-4 font-black hover:bg-green-600 transition-all uppercase tracking-widest text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
+                    ПРОДЛИТЬ С БАЛАНСА
+                </button>
+                <button onclick="extendGoBackToDuration()" class="w-full py-2 text-[10px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-gray-500 transition-colors">
+                    « ИЗМЕНИТЬ СРОК
+                </button>
+            </div>
+ 
+            <!-- Лоадер -->
+            <div id="extend-modal-loader" class="hidden py-10 flex flex-col items-center justify-center space-y-3">
+                <div class="w-10 h-10 border-[4px] border-black border-t-transparent animate-spin"></div>
+                <span id="extend-loader-text" class="text-[10px] font-black animate-pulse uppercase">РАСЧЁТ СТОИМОСТИ...</span>
+            </div>
+        </div>
+ 
+        <div class="bg-black h-1 w-full shrink-0"></div>
+    </div>
+</div>
+ 
+<script>
+    let _extendState = {
+        proxyIds: [],
+        days: null,
+        apiEndPoint: '/api/v1/user/proxies/extend',
+    };
+
+    function openExtendModal(proxyIds, apiEndpoint) {
+        if (!proxyIds || proxyIds.length === 0) {
+            window.Telegram?.WebApp?.showAlert?.('Выберите хотя бы один прокси для продления');
+            return;
+        }
+        _extendState.proxyIds = proxyIds;
+        _extendState.days = null;
+        _extendState.apiEndPoint = apiEndpoint || '/api/v1/user/proxies/extend';
+        _extendResetSteps();
+
+        const countEl = document.getElementById('extend-selected-count');
+        if (countEl) countEl.innerHTML = `ВЫБРАНО: ${proxyIds.length} ШТ.`;
+
+        document.getElementById('extend-modal-title').innerText =
+            proxyIds.length === 1 ? 'ПРОДЛЕНИЕ ПРОКСИ' : `ПРОДЛЕНИЕ ${proxyIds.length} ПРОКСИ`;
+ 
+        document.getElementById('extend-modal-overlay').classList.remove('hidden');
+    }
+
+    function closeExtendModal() {
+        _extendResetSteps();
+        smartCloseModal('extend-modal-overlay');
+    }
+
+    function _extendResetSteps() {
+        ['extend-step-duration', 'extend-step-confirm'].forEach((id, i) => {
+            document.getElementById(id).classList.toggle('hidden', i !== 0);
+        });
+        document.getElementById('extend-modal-loader').classList.add('hidden');
+        const btn = document.getElementById('extend-confirm-btn');
+        if (btn) {btn.disable = false; btn.innerHTML = 'ПРОДЛИТЬ С БАЛАНСА';}
+        _extendState.days = null;
+    }
+
+    async function extendSelectDuration(days) {
+        _extendState.days = days;
+
+        document.getElementById('extend-step-duration').classList.add('hidden');
+        document.getElementById('extend-modal-loader').classList.remove('hidden');
+        document.getElementById('extend-loader-text').innerText = 'РАСЧЁТ СТОИМОСТИ...';
+
+        try {
+            const res = await fetch('/api/v1/user/calculate-price', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT},
+                body: JSON.stringify({
+                    order_type: 'EXTEND',
+                    days: days,
+                    proxy_ids: _extendState.proxyIds,
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Ошибка сервера');
+
+            document.getElementById('extend-price-display').innerText = `${data.order_price} USD`;
+            document.getElementById('extend-summary-duration').innerText = days;
+            document.getElementById('extend-summary-count').innerText = _extendState.proxyIds.length;
+    
+            document.getElementById('extend-modal-loader').classList.add('hidden');
+            document.getElementById('extend-step-confirm').classList.remove('hidden');
+        } catch(e) {
+            closeExtendModal();
+            if (typeof showPurchaseError === 'function') showPurchaseError(e.message);
+            else window.Telegram?.WebApp?.showAlert?.('Ошибка: ' + e.message);
+        }
+    }
+
+    function extendGoBackToDuration() {
+        document.getElementById('extend-step-confirm').classList.add('hidden');
+        document.getElementById('extend-step-duration').classList.remove('hidden');
+    }
+
+    async function executeExtend() {
+        const btn = document.getElementById('extend-confirm-btn');
+        btn.disabled = true;
+        btn.innerText = 'Обработка...';
+        document.getElementById('extend-step-confirm').classList.add('hidden');
+        document.getElementById('extend-modal-loader').classList.remove('hidden');
+        document.getElementById('extend-loader-text').innerText = 'ПРОДЛЕНИЕ ПРОКСИ...';
+
+        try {
+            const res = await fetch(_extendState.apiEndPoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({
+                    proxy_ids: _extendState.proxyIds,
+                    days: _extendState.days,
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Ошибка при продлении');
+            closeExtendModal();
+            if (typeof showExtendSuccess === 'function') {
+                showExtendSuccess(data);
+            } else if (typeof showPurchaseSuccess === 'function') {
+                showPurchaseSuccess({ order_id: '—', count: data.extended });
+            }
+
+            if (typeof clearProxySelection === 'function') clearProxySelection();
+            if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
+            if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
+            if (typeof fetchUserProfile === 'function') fetchUserProfile();
+        } catch(e) {
+            closeExtendModal();
+            if (typeof showPurchaseError === 'function') showPurchaseError(e.message);
+            else window.Telegram?.WebApp?.showAlert?.('Ошибка: ' + e.message);
+        }
+    }
+</script>
