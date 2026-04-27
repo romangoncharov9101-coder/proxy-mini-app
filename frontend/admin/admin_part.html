@@ -518,12 +518,12 @@ document.addEventListener('DOMContentLoaded', () => {
         debounceFilter(loadNextUsersPage);
     };
 
-    document.getElementById('filter-proxies-search').oninput = () => resetAndReloadProxies();
-    document.getElementById('filter-proxies-country').oninput = () => resetAndReloadProxies();
-    document.getElementById('filter-proxies-expired').onchange = () => resetAndReloadProxies();
+    document.getElementById('filter-proxies-search').oninput = () => resetAndReloadAdminProxies();
+    document.getElementById('filter-proxies-country').oninput = () => resetAndReloadAdminProxies();
+    document.getElementById('filter-proxies-expired').onchange = () => resetAndReloadAdminProxies();
 });
 
-function resetAndReloadProxies() {
+function resetAndReloadAdminProxies() {
     adminProxiesState = {nextCursor: null, hasMore: true, isLoading: false};
     document.getElementById('admin-proxies-list').innerHTML = '';
     debounceFilter(loadNextAdminProxiesPage);

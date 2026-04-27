@@ -93,26 +93,42 @@ function renderProxyItems(items) {
 
     items.forEach(p => {
         const isActive = p.is_active;
-        const expires = p.expires_at ? new Date(p.expires_at).toLocaleDateString('ru-RU') : '—';
-        const daysLeft = p.expires_at ? Math.ceil((new Date(p.expires_at) - Date.now()) / 86400000) : null;
-        const urgent = daysLeft !== null && daysLeft <= 3;
-        const dot = isActive ? 'bg-green-500' : 'bg-zinc-300';
+        const expiresDate = p.expires_at ? new Date(p.expires_at) : null;
+        const now = new Date();
+
+        const daysLeft = expiresDate ? Math.ceil((expiresDate - now) / 86400000) : null;
+        const isExpired = daysLeft !== null && daysLeft <= 0;
+        const isUrgent = daysLeft !== null && daysLeft <= 3 && daysLeft > 0;
+        let dotColor = 'bg-red-500';
+        
+        if (isActive && !isExpired) {
+            if (isUrgent) {
+                dotColor = 'bg-yellow-500';
+            } else {
+                dotColor = 'bg-green-500';
+            }
+        }
+
+        const expiresStr = expiresDate ? expiresDate.toLocaleDateString('ru-RU') : '—';
 
         const el = document.createElement('div');
-        el.className = `border-2 ${urgent ? 'border-red-500' : 'border-black'} p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer active:scale-[0.99] transition-all`;
+        el.className = `border-2 ${isUrgent ? 'border-yellow-500' : (isExpired || !isActive ? 'border-black opacity-80' : 'border-black')} p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:bg-zinc-50 transition-all`;
+        
         el.onclick = () => openProxyDetail(p.id);
 
         el.innerHTML = `
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2 min-w-0">
-                    <div class="w-2 h-2 ${dot} border border-black shrink-0"></div>
+                    <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
                     <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
                 </div>
                 <span class="text-[9px] font-black text-gray-400 shrink-0 ml-2">${(p.ip_type || '').replace(/_/g, ' ')}</span>
             </div>
             <div class="flex justify-between mt-1 text-[9px] font-bold text-gray-400">
                 <span>${(p.country_code || '—').toUpperCase()} · ${p.type || 'socks5'}</span>
-                <span class="${urgent ? 'text-red-500' : ''}">ДО: ${expires}${daysLeft !== null ? ' (' + daysLeft + 'д)' : ''}</span>
+                <span class="${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : '')}">
+                    ${isExpired ? 'ИСТЕК' : `ДО: ${expiresStr} (${daysLeft}д)`}
+                </span>
             </div>
         `;
 

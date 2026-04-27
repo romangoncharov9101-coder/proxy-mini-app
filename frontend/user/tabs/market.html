@@ -32,7 +32,7 @@
                 marketState.hasMore = data.has_more;
             }
 
-            if (statysEl) {
+            if (statusEl) {
                 if ((data.items || []).length === 0 && !marketState.nextCursor) {
                     statusEl.innerHTML = '<span class="text-gray-300">РЕГИОНЫ НЕ НАЙДЕНЫ</span>';
                 } else {
@@ -61,7 +61,6 @@
             const type = (item.ip_type || 'STATIC').replace(/_/g, ' ');
             const price = item.retail_price !== undefined ? parseFloat(item.retail_price).toFixed(2) : '0.00';
 
-            card.onclick = () => openDurationModal(item.area_id);
             card.onclick = () => openDurationModal(item.area_id);
                 card.innerHTML = `
                     <div class="flex items-center gap-3">
