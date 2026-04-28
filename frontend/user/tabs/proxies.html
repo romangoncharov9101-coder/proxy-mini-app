@@ -178,8 +178,6 @@ function renderProxyItems(items) {
     });
 }
 
-// Клик на «тело» карточки (не на чекбокс и не на кнопку «+продлить»).
-// В режиме мультиселекта — выделяет прокси; иначе — открывает детали.
 function _onProxyCardBodyClick(proxyId, event) {
     event.stopPropagation();
     if (_selectionMode) {
@@ -281,6 +279,11 @@ function renderProxyDetail(container, p) {
             </div>
             <div class="font-black text-sm tracking-tight">${p.host}:${p.port}</div>
             <div class="text-[9px] text-gray-400 font-bold">${p.type || 'SOCKS5'} · ${p.ip_version || 'IPv4'} · ${(p.ip_type || '').replace(/_/g, ' ')}</div>
+        </div>
+
+        <div class="text-[9px] font-bold text-gray-500">
+            Страна прокси: ${p.checked_location || '—'} 
+            (${p.location_match ? 'совпадает' : 'не совпадает'})
         </div>
 
         <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">

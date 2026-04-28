@@ -85,7 +85,7 @@ class Proxy(Base):
     checked_location = Column(String(50), nullable=True)
     location_match = Column(Boolean, nullable=True)
 
-    owner = relationship('User', back_populates='proxies', foreign_keys=[owner_id])
+    owner = relationship('User', back_populates='proxies', foreign_keys=[owner_id], lazy='selectin')
     api_key = relationship('ApiKey', back_populates='proxies')
     transactions = relationship('Transaction', back_populates='proxy')
     region_info = relationship('Regions', back_populates='proxies')

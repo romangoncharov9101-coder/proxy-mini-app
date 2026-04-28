@@ -45,7 +45,6 @@ async def get_me(
         stmt = select(ApiKey).where(ApiKey.id == user.api_key_id, ApiKey.is_active.is_(True))
         res = await db.execute(stmt)
         api_key = res.scalar_one_or_none()
-        print(api_key)
 
         if api_key:
             needs_refresh = (
@@ -226,10 +225,6 @@ async def get_my_proxies(
     next_cursor = items[-1].id if has_more and items else None
 
     logger.debug("[PROXIES] user_id=%s — %d прокси, has_more=%s", current_user.id, len(items), has_more)
-    print('='*50)
-    print(items)
-    print('='*50)
-
     return {
         "items":       items,
         "next_cursor": next_cursor,
@@ -336,49 +331,42 @@ async def purchase_proxy_endpoint(
     2. Проверяет достаточность баланса
     3. Создаёт заказ, сохраняет прокси и транзакцию в БД
     """
+    user_id = getattr(current_user, "id", "—")
     logger.info(
         "[PURCHASE] user_id=%s area_id=%s num=%d days=%d",
         current_user.id, request.area_id, request.num, request.days,
     )
 
-    service_data = await IPFoxyService.get_service_by_user(db, current_user)
-    if not service_data:
-        raise HTTPException(
-            status_code=400,
-            detail="К вашему аккаунту не привязан активный API ключ. Обратитесь к администратору.",
-        )
-    service, user_api_key = service_data
-
-    total_cost = await service.get_order_price(
-        order_type="BUY",
-        area_id=request.area_id,
-        num=request.num,
-        days=request.days,
-    )
-
-    current_balance = user_api_key.balance or Decimal("0.00")
-    if current_balance < total_cost:
-        logger.warning(
-            "[PURCHASE] user_id=%s — недостаточно средств: баланс=%s цена=%s",
-            current_user.id, current_balance, total_cost,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=f"Недостаточно средств на балансе ключа. Баланс: {current_balance} USD, требуется: {total_cost} USD.",
-        )
-    
-    region_res = await db.execute(
-        select(Regions).where(Regions.area_id == str(request.area_id))
-    )
-    region = region_res.scalar_one_or_none()
-
-    if not region:
-        raise HTTPException(status_code=400, detail="Регион не найден")
-
-    expected_country_code = region.country_code
-
-    # ── Покупка ───────────────────────────────────────────────────────────
     try:
+        service_data = await IPFoxyService.get_service_by_user(db, current_user)
+        if not service_data:
+            raise HTTPException(
+                status_code=400,
+                detail='К вашему аккаунту не привязан активный API ключ. Обратитесь к администратору.',
+            )
+        service, user_api_key = service_data
+
+        total_cost = await service.get_order_price(
+            order_type="BUY",
+            area_id=request.area_id,
+            num=request.num,
+            days=request.days,
+        )
+
+        current_balance = user_api_key.balance or Decimal("0.00")
+        if current_balance < total_cost:
+            logger.warning(f'[PURCHASE] user_id={user_id} — недостаточно средств: баланс={current_balance} цена={total_cost}')
+            raise HTTPException(status_code=400, detail=f'Недостаточно средств на балансе ключа. Баланс: {current_balance} USD, требуется: {total_cost} USD.')
+    
+        region_res = await db.execute(select(Regions).where(Regions.area_id == str(request.area_id)))
+        region = region_res.scalar_one_or_none()
+
+        if not region:
+            raise HTTPException(status_code=400, detail='Регион не найден')
+
+        expected_country_code = region.country_code
+
+        # ── Покупка ───────────────────────────────────────────────────────────
         order_id = await service.purchase_proxy(
             area_id=request.area_id,
             num=request.num,
@@ -388,21 +376,20 @@ async def purchase_proxy_endpoint(
             raise ValueError('Не получен order_id от провайдера')
 
         order_details = await service.get_order_information(order_id)
-        if order_details.get("code") not in (0, 200):
-            raise ValueError(f'Ошибка получения деталей заказа: {order_details.get('msg')}')
+        if order_details.get('code') not in (0, 200):
+            raise ValueError(f"Ошибка получения деталей заказа: {order_details.get('msg')}")
 
-        # Обновляем баланс ключа
         new_balance = await service.get_balance()
         user_api_key.balance = new_balance
 
-        order_data = order_details.get('data', {}).get("proxy_ids", [])
-        proxies_data = await service.get_proxies_list(1, 50, order_data)
+        order_data = order_details.get('data', {}).get('proxy_ids', [])
+        proxy_ids_str = ",".join(str(pid) for pid in order_data) if order_data else None
+        proxies_data = await service.get_proxies_list(1, 50, proxy_ids_str)
         if not proxies_data:
             raise HTTPException(status_code=400, detail='Ошибка работы IPfoxy')
 
         for p in proxies_data:
             raw_expire = p.get("expire_time")
-
             proxy_host = p.get("host") or p.get("server")
             proxy_public_ip = p.get("public_ip") or proxy_host
 
@@ -412,7 +399,7 @@ async def purchase_proxy_endpoint(
             )
 
             new_proxy = Proxy(
-                owner_id=current_user.id,
+                owner_id=user_id,
                 api_key_id=user_api_key.id,
 
                 ipfoxy_proxy_id=str(p.get("id") or p.get("proxy_id")),
@@ -444,7 +431,7 @@ async def purchase_proxy_endpoint(
             logger.debug("[PURCHASE] добавлен прокси host=%s:%s", p.get("server"), p.get("port"))
 
         transaction = Transaction(
-            user_id=current_user.id,
+            user_id=user_id,
             order_id=str(order_id),
             api_key_id=user_api_key.id,
             type=TransactionType.purchase,
@@ -454,17 +441,14 @@ async def purchase_proxy_endpoint(
         db.add(transaction)
 
         await db.commit()
-        logger.info(
-            "[PURCHASE] user_id=%s — заказ %s создан, %d прокси",
-            current_user.id, order_id, len(proxies_data),
-        )
-        return {"status": "success", "order_id": order_id, "count": len(proxies_data)}
+        logger.info(f'[PURCHASE] user_id={user_id} — заказ {order_id} создан, {len(proxies_data)} прокси')
+        return {'status': 'success', 'order_id': order_id, 'count': len(proxies_data)}
 
     except HTTPException:
         raise
     except Exception as exc:
         await db.rollback()
-        logger.error("[PURCHASE] user_id=%s — ошибка: %s", current_user.id, exc, exc_info=True)
+        logger.error(f'[PURCHASE] user_id={user_id} — ошибка: {exc}')
         raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {exc}")
 
 @router.patch("/proxies/{proxy_id}/auto-extend")

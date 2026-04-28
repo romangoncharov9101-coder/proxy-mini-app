@@ -101,57 +101,48 @@ class IPFoxyService:
         except Exception as exc:
             logger.error(f'[CHECK] key_name={self.key_name} - исключение: {exc}')
             return False
+        
+    async def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[dict] = None
+    ) -> dict:
 
-    async def _make_request(self, method: str, endpoint: str, params: Optional[dict] = None, json_data: Optional[dict] = None) -> dict[str, Any]:
-        """
-        Выполняет HTTP-запрос к IPFoxy API с полным логированием.
-        Никогда не бросает исключение наружу — возвращает dict с code/msg.
-        """
-        url = f'{self.base_url}{endpoint}'
+        url = f"{self.base_url}{endpoint}"
+
         headers = {
-            'api-token': self.api_token,
-            'api-id': self.api_id,
-            'Content-Type': 'application/json',
+            "api-token": self.api_token,
+            "api-id": self.api_id,
         }
-        clean_params = {k: v for k, v in (params or {}).items() if v is not None} or None
-        logger.debug(f'[REQUEST] key_name={self.key_name} {method} {endpoint} {params} {json_data}')
-        t_start = time.monotonic()
 
         async with httpx.AsyncClient(timeout=20) as client:
             try:
-                response = await client.request(
-                    method,
-                    url,
-                    headers=headers,
-                    params=clean_params,
-                    json=json_data
-                )
-                duration_ms = int((time.monotonic() - t_start) * 1000)
-                response.raise_for_status()
+                if method.lower() == "get":
+                    response = await client.get(
+                        url,
+                        headers=headers,
+                        params=params
+                    )
 
-                data = response.json()
-                api_code = data.get('code')
-                api_msg = data.get('msg', '')
-
-                if data.get('code') in [0, 200]:
-                    logger.info(f'[RESPONSE] key_name={self.key_name} {method} {endpoint} - code={api_code} dur={duration_ms}')
                 else:
-                    logger.warning(f'[RESPONSE] key_name={self.key_name} {method} {endpoint} - API error code={api_code} msg={api_msg} dur={duration_ms}')
-                return data
-            
-            except httpx.HTTPStatusError as exc:
-                duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[HTTP_ERROR] key_name={self.key_name} {method} {endpoint} — status={exc.response.status_code} dur={duration_ms} body={exc.response.text}')
-                return {"code": exc.response.status_code, "msg": "HTTP error", "data": {}}
- 
-            except httpx.TimeoutException:
-                duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[TIMEOUT] key_name={self.key_name} {method} {endpoint} — dur={duration_ms}')
-                return {"code": 408, "msg": "Request timeout", "data": {}}
- 
+                    payload = {
+                        k: str(v)
+                        for k, v in (params or {}).items()
+                        if v is not None
+                    }
+
+                    response = await client.post(
+                        url,
+                        headers=headers,
+                        data=payload
+                    )
+
+                response.raise_for_status()
+                return response.json()
+
             except Exception as exc:
-                duration_ms = int((time.monotonic() - t_start) * 1000)
-                logger.error(f'[UNEXPECTED] key_name={self.key_name} {method} {endpoint} — {exc} dur={duration_ms}')
+                logger.error(f"IPFoxy error: {exc}")
                 return {"code": 500, "msg": str(exc), "data": {}}
             
     async def get_balance(self) -> Decimal:
@@ -171,9 +162,9 @@ class IPFoxyService:
             '/ip/open-api/proxy-list',
             params={'page': page, 'page_size': page_size, 'proxy_ids': proxy_ids}
         )
-        list = data.get('data', {}).get('list', [])
+        proxies_list = data.get('data', {}).get('list', [])
         logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(list)} прокси (стр. {page})')
-        return list
+        return proxies_list
     
     async def renew_proxy(self, proxy_ids: str, days: int = 30) -> dict:
         """ Продлить купленный ранее прокси """
@@ -185,10 +176,16 @@ class IPFoxyService:
     
     async def purchase_proxy(self, area_id: int, num: int, days: int = 30, auto_extend: int = 0) -> Optional[str]:
         """ Метод на покупку прокси """
+        payload = {
+            "days": int(days),
+            "area_id": int(area_id),
+            "auto_extend": int(auto_extend),
+            "num": int(num),
+        }
         data = await self._make_request(
             'POST',
             '/ip/open-api/proxy-buy',
-            params={'days': days, 'area_id': area_id, 'auto_extend': auto_extend, 'num': num}
+            params=payload
         )
         order_id = data.get('data', {}).get('order_id')
         if order_id:

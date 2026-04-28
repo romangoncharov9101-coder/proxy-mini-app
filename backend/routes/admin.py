@@ -58,8 +58,26 @@ async def create_api_key(
         key=encrypt_data(key_data.key),
         api_id=key_data.api_id,
         key_name=key_data.key_name,
+        balance=0,
+        last_checked=None
     )
+
+    try:
+        service = IPFoxyService.get_service_by_key_obj(new_key)
+        is_ok = await service.check_connection()
+        if not is_ok:
+            raise HTTPException(status_code=400, detail='Неверный API ID / TOKEN либо API недоступен')
+        balance = await service.get_balance()
+        new_key.balance = balance
+        new_key.last_checked = datetime.now(timezone.utc)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f'[ADMIN_KEYS] ошибка проверки ключа api_id={key_data.api_id}: {exc}')
+        raise HTTPException(status_code=400, detail='Не удалось проверить ключ через IPFoxy API')
+    
     db.add(new_key)
+
     try:
         await db.commit()
         await db.refresh(new_key)
@@ -89,7 +107,6 @@ async def get_api_key_stats(
 
     current_balance = api_key.balance
     try:
-        current_balance = float(current_balance)
         service = IPFoxyService.get_service_by_key_obj(api_key)
         balance = await service.get_balance()
         api_key.balance = balance
@@ -359,7 +376,7 @@ async def get_all_proxies(
     owner_id:     Optional[int] = Query(None, description='фильтр по user_id владельца'),
     country_code: Optional[str] = Query(None, description='Фильтр по коду страны'),
     expired:      Optional[bool]= Query(None, description='True - только истекшие прокси'),
-    search:       Optional[str] = Query(None, description="Поиск по user, proxy_id, order_id"),
+    search:       Optional[str] = Query(None, description='Поиск по user, proxy_id, order_id'),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):

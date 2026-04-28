@@ -72,7 +72,7 @@ class ApiKeyStatsResponse(BaseModel):
     api_id: str
     key_name: str
     is_active: bool
-    balance: float
+    balance: Optional[float] = None
     proxy_count: int = 0
     user_count: int = 0
 
