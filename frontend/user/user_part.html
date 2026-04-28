@@ -22,17 +22,21 @@
                        placeholder="ПОИСК (IP, HOSTNAME, ORDER ID)..."
                        oninput="debounceProxySearch()"
                        class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
+            </div>
+
+            <!-- Панель мультиселекта (скрыта, пока ничего не выбрано) -->
+            <div id="user-proxy-selection-bar"
+                 class="hidden sticky top-0 z-20 bg-white border-2 border-black p-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-2 mb-2">
+                <span id="user-proxy-selection-count" class="text-[9px] font-black uppercase"></span>
                 <div class="flex gap-2">
-                    <select id="proxy-country-filter" onchange="resetAndReloadProxies()"
-                            class="flex-1 bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none">
-                        <option value="">ВСЕ СТРАНЫ</option>
-                    </select>
-                    <select id="proxy-status-filter" onchange="resetAndReloadProxies()"
-                            class="flex-1 bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] outline-none">
-                        <option value="all">ВСЕ</option>
-                        <option value="active">АКТИВНЫЕ</option>
-                        <option value="expired">ИСТЕКШИЕ</option>
-                    </select>
+                    <button onclick="openExtendModal(Array.from(_selectedProxyIds))"
+                        class="border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        + ПРОДЛИТЬ ВЫБРАННЫЕ
+                    </button>
+                    <button onclick="clearProxySelection()"
+                        class="border border-black px-2 py-1 text-[9px] font-black uppercase hover:bg-zinc-100 transition-all">
+                        ОТМЕНА
+                    </button>
                 </div>
             </div>
 

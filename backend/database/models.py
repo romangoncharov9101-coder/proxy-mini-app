@@ -116,6 +116,7 @@ class Transaction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    order_id = Column(String(50), nullable=False)
     proxy_id = Column(Integer, ForeignKey('proxies.id'), nullable=True, index=True)
     api_key_id  = Column(Integer, ForeignKey("api_keys.id"), nullable=True, index=True)
     type = Column(SAEnum(TransactionType), nullable=False)

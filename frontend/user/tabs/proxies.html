@@ -26,10 +26,6 @@
     </div>
 </div>
 
-<div id="user-proxies-container"></div>
-
-{% include 'user/modals/extend_proxy_modal.html' %}
-
 <script src="/static/js/proxies.js"></script>
 
 <script>
@@ -115,7 +111,6 @@ function renderProxyItems(items) {
     const container = document.getElementById('user-proxies-container');
     if (!container) return;
 
-    // Выносим "сейчас" за цикл для производительности
     const now = new Date();
 
     items.forEach(p => {
@@ -134,11 +129,8 @@ function renderProxyItems(items) {
         const expiresStr = expiresDate ? expiresDate.toLocaleDateString('ru-RU') : '—';
 
         const el = document.createElement('div');
-        // Стили всей карточки: добавил четкие отступы и легкий бордер-т для разделения зон внутри
         el.className = `group border-2 ${isUrgent ? 'border-yellow-500' : (isExpired || !isActive ? 'border-black opacity-80' : 'border-black')} 
                         p-0 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all`;
-        
-        el.onclick = () => openProxyDetail(p.id);
 
         el.innerHTML = `
             <div class="p-3 flex items-center justify-between gap-3">
@@ -149,7 +141,7 @@ function renderProxyItems(items) {
                         </div>
                     </div>
 
-                    <div class="min-w-0">
+                    <div class="min-w-0 cursor-pointer" onclick="_onProxyCardBodyClick(${p.id}, event)">
                         <div class="flex items-center gap-2">
                             <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
                             <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
@@ -168,7 +160,7 @@ function renderProxyItems(items) {
             <div class="border-t border-black/10 mx-3"></div>
 
             <div class="p-3 pt-2 flex items-center justify-between">
-                <div class="flex flex-col">
+                <div class="flex flex-col cursor-pointer" onclick="_onProxyCardBodyClick(${p.id}, event)">
                     <span class="text-[8px] font-black text-gray-400 uppercase leading-none mb-1">Срок действия:</span>
                     <span class="text-[10px] font-black ${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : 'text-black')}">
                         ${isExpired ? 'СРОК ИСТЕК' : `${expiresStr} (${daysLeft}д.)`}
@@ -184,6 +176,17 @@ function renderProxyItems(items) {
 
         container.appendChild(el);
     });
+}
+
+// Клик на «тело» карточки (не на чекбокс и не на кнопку «+продлить»).
+// В режиме мультиселекта — выделяет прокси; иначе — открывает детали.
+function _onProxyCardBodyClick(proxyId, event) {
+    event.stopPropagation();
+    if (_selectionMode) {
+        toggleProxySelect(proxyId, event);
+    } else {
+        openProxyDetail(proxyId);
+    }
 }
 
 function handleProxyCardClick(proxyId, event) {

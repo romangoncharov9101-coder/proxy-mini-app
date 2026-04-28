@@ -67,13 +67,21 @@
         <div class="grid grid-cols-2 gap-2">
             <input type="text" id="filter-proxies-search" placeholder="USERNAME / PROXY_ID / ORDER_ID" 
                 class="col-span-2 border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
-            <input type="text" id="filter-proxies-country" placeholder="СТРАНА (US, UA)" 
-                class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
-            <select id="filter-proxies-expired" class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
-                <option value="">СРОК: ЛЮБОЙ</option>
-                <option value="false">АКТИВНЫЕ</option>
-                <option value="true">ИСТЕКШИЕ</option>
-            </select>
+        </div>
+        <!-- Панель мультиселекта (скрыта, пока ничего не выбрано) -->
+        <div id="admin-proxy-selection-bar"
+             class="hidden sticky top-0 z-20 bg-white border-2 border-black p-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-2">
+            <span id="admin-proxy-selection-count" class="text-[9px] font-black uppercase"></span>
+            <div class="flex gap-2">
+                <button onclick="openExtendModal(Array.from(_adminSelectedProxyIds), '/api/v1/admin/proxies/extend')"
+                    class="border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                    + ПРОДЛИТЬ ВЫБРАННЫЕ
+                </button>
+                <button onclick="clearAdminProxySelection()"
+                    class="border border-black px-2 py-1 text-[9px] font-black uppercase hover:bg-zinc-100 transition-all">
+                    ОТМЕНА
+                </button>
+            </div>
         </div>
         <div id="admin-proxies-list" class="space-y-3"></div>
         <div id="admin-proxies-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
@@ -368,52 +376,120 @@ async function loadNextAdminProxiesPage() {
     } finally { adminProxiesState.isLoading = false; }
 }
 
+/* ═══════════════════════════════════════
+   МУЛЬТИСЕЛЕКТ (ADMIN)
+═══════════════════════════════════════ */
+let _adminSelectedProxyIds = new Set();
+let _adminSelectionMode = false;
+
+function clearAdminProxySelection() {
+    _adminSelectedProxyIds.forEach(function(id) {
+        const cb = document.getElementById('admin-proxy-check-' + id);
+        if (cb) cb.classList.remove('bg-black');
+        document.querySelectorAll('.admin-proxy-check-icon-' + id).forEach(ic => ic.classList.add('hidden'));
+    });
+    _adminSelectedProxyIds.clear();
+    _adminSelectionMode = false;
+    _updateAdminSelectionBar();
+}
+
+function toggleAdminProxySelect(proxyId, event) {
+    event.stopPropagation();
+    const checkBox   = document.getElementById('admin-proxy-check-' + proxyId);
+    const checkIcons = document.querySelectorAll('.admin-proxy-check-icon-' + proxyId);
+
+    if (_adminSelectedProxyIds.has(proxyId)) {
+        _adminSelectedProxyIds.delete(proxyId);
+        if (checkBox) checkBox.classList.remove('bg-black');
+        checkIcons.forEach(ic => ic.classList.add('hidden'));
+    } else {
+        _adminSelectedProxyIds.add(proxyId);
+        if (checkBox) checkBox.classList.add('bg-black');
+        checkIcons.forEach(ic => ic.classList.remove('hidden'));
+    }
+    _adminSelectionMode = _adminSelectedProxyIds.size > 0;
+    _updateAdminSelectionBar();
+}
+
+function _updateAdminSelectionBar() {
+    const bar     = document.getElementById('admin-proxy-selection-bar');
+    const countEl = document.getElementById('admin-proxy-selection-count');
+    if (!bar) return;
+    if (_adminSelectedProxyIds.size > 0) {
+        bar.classList.remove('hidden');
+        if (countEl) countEl.innerText = 'ВЫБРАНО: ' + _adminSelectedProxyIds.size;
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+/* Карточка прокси у админа — тот же визуал что и у пользователя */
 function buildAdminProxyCard(p) {
-    const getStatusClass = (proxy) => {
-        if (!proxy.is_active) return 'bg-red-500'; // Серый, если неактивен
+    const now      = new Date();
+    const expires  = p.expires_at ? new Date(p.expires_at) : null;
+    const daysLeft = expires ? Math.ceil((expires - now) / 86400000) : null;
+    const isExpired = daysLeft !== null && daysLeft <= 0;
+    const isUrgent  = daysLeft !== null && daysLeft > 0 && daysLeft <= 3;
 
-            const expiresAt = new Date(proxy.expires_at);
-            const now = new Date();
-            
-            const diffTime = expiresAt - now;
-            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    let dotColor = 'bg-red-500';
+    if (p.is_active && !isExpired) dotColor = isUrgent ? 'bg-yellow-500' : 'bg-green-500';
 
-            if (diffDays <= 0) {
-                return 'bg-red-500';
-            }
-            
-            if (diffDays < 3) {
-                return 'bg-yellow-500';
-            }
+    const expiresStr = expires ? expires.toLocaleDateString('ru-RU') : '—';
+    const borderClass = isUrgent ? 'border-yellow-500' : 'border-black';
 
-            return 'bg-green-500';
-        };
-
-    const dot = getStatusClass(p);
-    const expires = p.expires_at ? new Date(p.expires_at).toLocaleDateString('ru-RU') : '—';
     const el = document.createElement('div');
-    const flagCode = p.country_code ? p.country_code.toLowerCase() : 'un';
-    el.className = 'border-2 border-black p-3 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:bg-zinc-50 transition-all';
-    el.onclick = () => openAdminProxyDetail(p.id);
+    el.className = `border-2 ${borderClass} p-0 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all`;
+
     el.innerHTML = `
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2 min-w-0">
-                <div class="w-2 h-2 ${dot} border border-black shrink-0"></div>
-                <span class="text-[11px] font-black truncate">${p.host}:${p.port}</span>
+        <div class="p-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <!-- Чекбокс мультиселекта -->
+                <div class="shrink-0" onclick="event.stopPropagation(); toggleAdminProxySelect(${p.id}, event)">
+                    <div id="admin-proxy-check-${p.id}" class="w-5 h-5 border-2 border-black flex items-center justify-center transition-all bg-white">
+                        <span class="text-[10px] font-black text-white hidden admin-proxy-check-icon-${p.id}">✓</span>
+                    </div>
+                </div>
+                <!-- Основная информация — клик открывает детали -->
+                <div class="min-w-0 cursor-pointer" onclick="_onAdminCardBodyClick(${p.id}, event)">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
+                        <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
+                    </div>
+                    <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
+                        ${p.type || 'socks5'} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
+                    </div>
+                </div>
             </div>
-            <div>
-                <img src="https://flagcdn.com/w40/${flagCode}.png" 
-                    class="w-6 h-4 border border-black object-cover" 
-                    onerror="this.src='https://placehold.co/40x30?text=?'">
-                <span class="text-[8px] font-bold text-gray-400 shrink-0 ml-2">${(p.country_code||'—')}</span>
+            <div class="shrink-0 bg-black text-white px-2 py-1 text-[10px] font-black uppercase italic">
+                ${(p.country_code || '??').toUpperCase()}
             </div>
         </div>
-        <div class="flex justify-between mt-1 text-[8px] font-bold text-gray-400">
-            <span>${(p.ip_type||'').replace('_',' ')} • ${p.type||'socks5'}</span>
-            <span>ДО: ${expires}</span>
+
+        <div class="border-t border-black/10 mx-3"></div>
+
+        <div class="p-3 pt-2 flex items-center justify-between">
+            <div class="flex flex-col cursor-pointer" onclick="_onAdminCardBodyClick(${p.id}, event)">
+                <span class="text-[8px] font-black text-gray-400 uppercase leading-none mb-1">Срок действия:</span>
+                <span class="text-[10px] font-black ${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : 'text-black')}">
+                    ${isExpired ? 'СРОК ИСТЕК' : `${expiresStr} (${daysLeft}д.)`}
+                </span>
+            </div>
+            <button onclick="event.stopPropagation(); openExtendModal([${p.id}], '/api/v1/admin/proxies/extend')"
+                class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
+                + ПРОДЛИТЬ
+            </button>
         </div>
     `;
     return el;
+}
+
+function _onAdminCardBodyClick(proxyId, event) {
+    event.stopPropagation();
+    if (_adminSelectionMode) {
+        toggleAdminProxySelect(proxyId, event);
+    } else {
+        openAdminProxyDetail(proxyId);
+    }
 }
 
 /* ════════════════════════════════════════
@@ -525,6 +601,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function resetAndReloadAdminProxies() {
     adminProxiesState = {nextCursor: null, hasMore: true, isLoading: false};
+    clearAdminProxySelection();
     document.getElementById('admin-proxies-list').innerHTML = '';
     debounceFilter(loadNextAdminProxiesPage);
 }

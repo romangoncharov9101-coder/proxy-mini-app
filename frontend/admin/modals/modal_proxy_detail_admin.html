@@ -9,7 +9,6 @@
         </div>
     </div>
 </div>
-
 <script>
 async function openAdminProxyDetail(proxyId) {
     const modal = document.getElementById('admin-proxy-detail-modal');
@@ -89,6 +88,41 @@ function renderAdminProxyDetail(container, p) {
                 ${p.auto_extend ? 'ВКЛ' : 'ВЫКЛ'}
             </button>
         </div>
+
+        <!-- Активность прокси -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            <div class="flex items-center justify-between mb-2">
+                <div>
+                    <div class="text-[10px] font-black">СТАТУС ПРОКСИ</div>
+                    <div class="text-[8px] text-gray-400 font-bold normal-case">
+                        Активировать или отключить прокси в системе
+                    </div>
+                </div>
+                <span id="adm-active-saving-${p.id}" class="text-[8px] font-black text-gray-400 hidden">СОХРАНЕНИЕ...</span>
+            </div>
+
+            <div class="flex gap-2">
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="adm_active_${p.id}" value="true"
+                        ${p.is_active ? 'checked' : ''}
+                        onchange="adminSetProxyActive(${p.id}, true)"
+                        class="sr-only peer">
+                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">
+                        АКТИВЕН
+                    </div>
+                </label>
+
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="adm_active_${p.id}" value="false"
+                        ${!p.is_active ? 'checked' : ''}
+                        onchange="adminSetProxyActive(${p.id}, false)"
+                        class="sr-only peer">
+                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">
+                        ОТКЛЮЧЕН
+                    </div>
+                </label>
+            </div>
+        </div>
     `;
 }
 
@@ -111,6 +145,43 @@ async function adminToggleAutoExtend(proxyId, newValue) {
     } catch(e) {
         window.Telegram.WebApp.showAlert('ОШИБКА');
         if (btn) { btn.disabled = false; }
+    }
+}
+
+async function adminSetProxyActive(proxyId, newValue) {
+    const saving = document.getElementById('adm-active-saving-' + proxyId);
+    if (saving) saving.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/api/v1/admin/proxies/${proxyId}/active`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-TG-Init-Data': TG_INIT
+            },
+            body: JSON.stringify({
+                is_active: newValue
+            })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Ошибка сохранения');
+
+        if (typeof resetAndReloadAdminProxies === 'function') {
+            resetAndReloadAdminProxies();
+        }
+
+    } catch (e) {
+        window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ СТАТУСА');
+
+        const rollbackValue = newValue ? 'false' : 'true';
+        const rollbackRadio = document.querySelector(
+            `input[name="adm_active_${proxyId}"][value="${rollbackValue}"]`
+        );
+
+        if (rollbackRadio) rollbackRadio.checked = true;
+    } finally {
+        if (saving) saving.classList.add('hidden');
     }
 }
 </script>

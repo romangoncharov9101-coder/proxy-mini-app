@@ -15,6 +15,7 @@ from backend.database.models import (
 from backend.utils.security import require_admin
 from backend.utils.crypto import encrypt_data
 from backend.api_services.ipfoxy import IPFoxyService
+from backend.api_services.extend_service import extend_proxies_service
 
 router = APIRouter(prefix='/admin', tags=['Admin'])
 logger = logging.getLogger('routes.admin')
@@ -44,7 +45,6 @@ async def get_api_keys(
     result = await db.execute(stmt)
     keys = result.scalars().all()
     return keys
-
 
 @router.post('/keys', response_model=schemas.ApiKeyResponse, status_code=status.HTTP_201_CREATED)
 async def create_api_key(
@@ -148,7 +148,6 @@ async def update_api_key(
         await db.rollback()
         logger.error('[ADMIN_KEYS] ошибка обновления key_id=%s: %s', key_id, exc)
         raise HTTPException(status_code=400, detail='Ошибка при обновлении ключа.')
-
 
 @router.delete('/keys/{key_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_key(
@@ -370,7 +369,7 @@ async def get_all_proxies(
     Сортировка: новые первые.
     '''
     logger.info(f'[ADMIN_PROXIES] last_id={last_id} limit={limit}')
-    stmt = select(Proxy).order_by(Proxy.id.desc())
+    stmt = select(Proxy).where(Proxy.expires_at > datetime.now(timezone.utc)).order_by(Proxy.id.desc())
     now = datetime.now(timezone.utc)
 
     if search:
@@ -426,7 +425,6 @@ async def get_proxy_detail_admin(
     if not proxy:
         raise HTTPException(status_code=404, detail='Прокси не найден')
 
-    # Подгружаем данные владельца
     owner_username: Optional[str] = None
     owner_tg_id:    Optional[int] = None
     if proxy.owner_id:
@@ -436,7 +434,6 @@ async def get_proxy_detail_admin(
             owner_username = owner.username or owner.first_name
             owner_tg_id    = owner.telegram_id
 
-    # Подгружаем название ключа
     api_key_name: Optional[str] = None
     if proxy.api_key_id:
         key_res = await db.execute(select(ApiKey).where(ApiKey.id == proxy.api_key_id))
@@ -469,6 +466,59 @@ async def get_proxy_detail_admin(
         owner_tg_id=owner_tg_id,
         api_key_name=api_key_name,
     )
+
+@router.patch('/proxies/{proxy_id}/active')
+async def set_proxy_active_admin(
+    proxy_id: int,
+    data: schemas.ProxyActiveRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    """
+    Активировать / деактивирвоать выбранный прокси.
+    Доступно только администратору при просмотре карточки с детальной информацией о прокси.
+    """
+    logger.info(
+        '[ADMIN_PROXY_ACTIVE] admin_id=%s proxy_id=%s → %s',
+        admin.id, proxy_id, data.is_active,
+    )
+
+    result = await db.execute(
+        select(Proxy).where(Proxy.id == proxy_id)
+    )
+    proxy = result.scalar_one_or_none()
+
+    if not proxy:
+        raise HTTPException(status_code=404, detail='Прокси не найден')
+
+    proxy.is_active = data.is_active
+
+    try:
+        await db.commit()
+        await db.refresh(proxy)
+
+        logger.info(
+            '[ADMIN_PROXY_ACTIVE] proxy_id=%s is_active=%s — OK',
+            proxy.id, proxy.is_active,
+        )
+
+        return {
+            'status': 'success',
+            'proxy_id': proxy.id,
+            'is_active': proxy.is_active,
+        }
+
+    except Exception as exc:
+        await db.rollback()
+        logger.error(
+            '[ADMIN_PROXY_ACTIVE] ошибка proxy_id=%s: %s',
+            proxy_id, exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail='Ошибка при изменении статуса прокси',
+        )
 
 @router.get('/transactions', response_model=schemas.TransactionPageResponse)
 async def get_all_transactions(
@@ -533,3 +583,16 @@ async def get_all_transactions(
 
     logger.debug('[ADMIN_TX] возвращено %d транзакций, has_more=%s', len(items), has_more)
     return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
+
+@router.post('/proxies/extend')
+async def extend_proxies_admin(
+    request: schemas.ExtendProxyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    return await extend_proxies_service(
+        db=db,
+        current_user=current_user,
+        proxy_ids=request.proxy_ids,
+        days=request.days
+    )

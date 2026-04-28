@@ -96,7 +96,7 @@ class IPFoxyService:
             if ok:
                 logger.info(f'[CHECK] key_name={self.key_name} - соединение ОК')
             else:
-                logger.warning(f'[CHECK] key_name={self.key_name} - ответ API: code={data.get('code')}')
+                logger.warning(f"[CHECK] key_name={self.key_name} - ответ API: code={data.get('code')}")
             return ok
         except Exception as exc:
             logger.error(f'[CHECK] key_name={self.key_name} - исключение: {exc}')
@@ -161,12 +161,15 @@ class IPFoxyService:
         logger.info(f'[BALANCE] key_name={self.key_name} - {Decimal(str(balance))} USD')
         return Decimal(str(balance))
     
-    async def get_proxies_list(self, page: int = 1, page_size: int = 20) -> list[dict]:
+    async def get_proxies_list(self, page: int = 1, page_size: int = 20, proxy_ids: str = None) -> list[dict]:
         """ Получить список всех прокси связанных с АПИ ключами """
+        if isinstance(proxy_ids, list):
+            proxy_ids = ','.join(str(pid) for pid in proxy_ids)
+
         data = await self._make_request(
             'GET',
             '/ip/open-api/proxy-list',
-            params={'page': page, 'page_size': page_size}
+            params={'page': page, 'page_size': page_size, 'proxy_ids': proxy_ids}
         )
         list = data.get('data', {}).get('list', [])
         logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(list)} прокси (стр. {page})')
@@ -207,6 +210,9 @@ class IPFoxyService:
         Получить стоимость заказа перед покупкой.
         ВАЖНО: IPFoxy возвращает ключ 'order price' (с пробелом).
         """
+        if proxy_ids and isinstance(proxy_ids, list):
+            proxy_ids = ','.join(str(pid) for pid in proxy_ids)
+
         data = await self._make_request(
             'GET',
             '/ip/open-api/order-price',

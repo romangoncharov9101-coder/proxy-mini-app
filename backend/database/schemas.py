@@ -137,6 +137,9 @@ class ExtendProxyRequest(BaseModel):
 class AutoExtendRequest(BaseModel):
     auto_extend: bool
 
+class ProxyActiveRequest(BaseModel):
+    is_active: bool
+
 # ---- Countries -------------------------------------------------
 class CountryItem(BaseModel):
     id: int

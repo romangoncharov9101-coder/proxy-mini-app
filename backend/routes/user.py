@@ -17,6 +17,8 @@ from backend.database.models import User, Regions, Proxy, Transaction, Transacti
 from backend.utils.security import get_current_user
 from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
+from backend.api_services.extend_service import extend_proxies_service
+from backend.utils.check_location import check_proxy_country_with_ip_api
 
 router = APIRouter(prefix="/user", tags=["User"])
 logger = logging.getLogger("routes.user")
@@ -186,7 +188,11 @@ async def get_my_proxies(
     now = datetime.now(timezone.utc)
     stmt = (
         select(Proxy)
-        .where(Proxy.owner_id == current_user.id)
+        .where(
+            Proxy.owner_id == current_user.id,
+            Proxy.is_active == True,
+            Proxy.expires_at > datetime.now(timezone.utc)
+            )
         .order_by(Proxy.id.desc())
     )
 
@@ -301,7 +307,7 @@ async def calculate_order_price(
             order_type=order_data.order_type,
             days=order_data.days,
             area_id=order_data.area_id,
-            proxy_ids=[str(p) for p in order_data.proxy_ids] if order_data.proxy_ids else None,
+            proxy_ids=",".join(str(pid) for pid in ipfoxy_proxy_ids) if order_data.proxy_ids else None,
             num=order_data.num,
         )
         return {
@@ -343,7 +349,6 @@ async def purchase_proxy_endpoint(
         )
     service, user_api_key = service_data
 
-    # ── Проверка баланса ──────────────────────────────────────────────────
     total_cost = await service.get_order_price(
         order_type="BUY",
         area_id=request.area_id,
@@ -361,6 +366,16 @@ async def purchase_proxy_endpoint(
             status_code=400,
             detail=f"Недостаточно средств на балансе ключа. Баланс: {current_balance} USD, требуется: {total_cost} USD.",
         )
+    
+    region_res = await db.execute(
+        select(Regions).where(Regions.area_id == str(request.area_id))
+    )
+    region = region_res.scalar_one_or_none()
+
+    if not region:
+        raise HTTPException(status_code=400, detail="Регион не найден")
+
+    expected_country_code = region.country_code
 
     # ── Покупка ───────────────────────────────────────────────────────────
     try:
@@ -370,38 +385,67 @@ async def purchase_proxy_endpoint(
             days=request.days,
         )
         if not order_id:
-            raise ValueError("Не получен order_id от провайдера")
+            raise ValueError('Не получен order_id от провайдера')
 
         order_details = await service.get_order_information(order_id)
         if order_details.get("code") not in (0, 200):
-            raise ValueError(f"Ошибка получения деталей заказа: {order_details.get('msg')}")
+            raise ValueError(f'Ошибка получения деталей заказа: {order_details.get('msg')}')
 
         # Обновляем баланс ключа
         new_balance = await service.get_balance()
         user_api_key.balance = new_balance
 
-        proxies_data = order_details.get("data", {}).get("list", [])
+        order_data = order_details.get('data', {}).get("proxy_ids", [])
+        proxies_data = await service.get_proxies_list(1, 50, order_data)
+        if not proxies_data:
+            raise HTTPException(status_code=400, detail='Ошибка работы IPfoxy')
 
         for p in proxies_data:
             raw_expire = p.get("expire_time")
+
+            proxy_host = p.get("host") or p.get("server")
+            proxy_public_ip = p.get("public_ip") or proxy_host
+
+            checked_location, location_match = await check_proxy_country_with_ip_api(
+                ip_or_host=proxy_public_ip,
+                expected_country_code=expected_country_code,
+            )
+
             new_proxy = Proxy(
                 owner_id=current_user.id,
                 api_key_id=user_api_key.id,
-                ipfoxy_proxy_id=str(p.get("proxy_id")),
+
+                ipfoxy_proxy_id=str(p.get("id") or p.get("proxy_id")),
                 ipfoxy_order_id=str(order_id),
-                host=p.get("server"),
-                port=p.get("port"),
-                username=p.get("username"),
+
+                host=proxy_host,
+                public_ip=p.get("public_ip"),
+                port=int(p.get("port")),
+
+                username=p.get("user") or p.get("username"),
                 password=p.get("password"),
+                type=p.get("type") or "socks5",
+
                 ip_type=p.get("ip_type"),
-                expires_at=datetime.fromtimestamp(raw_expire) if raw_expire else None,
+                ip_version=p.get("ip_version"),
+
                 area_id=str(request.area_id),
+                country_code=expected_country_code,
+
+                expires_at=datetime.fromtimestamp(int(raw_expire), tz=timezone.utc) if raw_expire else None,
+
+                checked_location=checked_location,
+                location_match=location_match,
+
+                auto_extend=False,
+                auto_extend_local=False,
             )
             db.add(new_proxy)
             logger.debug("[PURCHASE] добавлен прокси host=%s:%s", p.get("server"), p.get("port"))
 
         transaction = Transaction(
             user_id=current_user.id,
+            order_id=str(order_id),
             api_key_id=user_api_key.id,
             type=TransactionType.purchase,
             amount=total_cost,
@@ -447,7 +491,7 @@ async def set_auto_extend(
     if not proxy:
         raise HTTPException(status_code=404, detail="Прокси не найден")
 
-    proxy.auto_extend = data.auto_extend
+    proxy.auto_extend_local = data.auto_extend
     await db.commit()
     logger.info("[AUTO_EXTEND] proxy_id=%s auto_extend=%s — OK", proxy_id, data.auto_extend)
     return {"proxy_id": proxy_id, "auto_extend": data.auto_extend}
@@ -456,91 +500,11 @@ async def set_auto_extend(
 async def extend_proxies(
     request: schemas.ExtendProxyRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Ручное продление одного или нескольких прокси на N дней.
-    Администратор может продлевать любые прокси, пользователь — только свои.
-    Алгоритм: расчёт цены -> проверка баланса -> вызов /proxy-extend -> обновление БД.
-    """
-    if not request.proxy_ids:
-        raise HTTPException(status_code=400, detail='Список proxy_ids пуст')
-    if request.days < 1:
-        raise HTTPException(status_code=400, detail='days должен быть 30, 90, 180, 360')
-    logger.info(f'[EXTEND] user_id={current_user.id} proxy_ids={request.proxy_ids} days={request.days}')
-
-    if current_user.role == UserRole.admin:
-        stmt = select(Proxy).where(Proxy.id.in_(request.proxy_ids))
-    else:
-        stmt = select(Proxy).where(Proxy.id.in_(request.proxy_ids), Proxy.owner_id == current_user.id)
-    
-    result = await db.execute(stmt)
-    proxies = result.scalars().all()
-
-    if not proxies:
-        raise HTTPException(status_code=404, detail='Прокси не найдены или у вас нет доступа')
-    
-    if len(proxies) != len(request.proxy_ids):
-        raise HTTPException(status_code=403, detail='Некоторые прокси не найдены или принадлежат другому пользователю')
-    
-    service_data = await IPFoxyService.get_service_by_user(db, current_user)
-    if not service_data:
-        raise HTTPException(status_code=400, detail='К вашему аккаунту не привязан активный API ключ. обратитесь к администратору.')
-    
-    service, user_api_key = service_data
-    ipfoxy_ids = [p.ipfoxy_proxy_id for p in proxies if p.ipfoxy_proxy_id]
-
-    if not ipfoxy_ids:
-        raise HTTPException(status_code=400, detail='У выбранных прокси нет внешних API дляя проверки')
-
-    proxy_ids_str = ','.join(str(pid) for pid in ipfoxy_ids)
-    try:
-        total_cost = await service.get_order_price(
-            order_type = 'EXTEND',
-            days=request.days,
-            proxy_ids=ipfoxy_ids
-        )
-    except Exception as exc:
-        logger.error("[EXTEND] ошибка расчёта цены: %s", exc)
-        raise HTTPException(status_code=500, detail="Ошибка при расчёте стоимости продления")
-    
-    current_balance = user_api_key.balance or Decimal('0.00')
-    if current_balance < total_cost:
-        raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD, требуется: {total_cost} USD')
-    
-    try:
-        await service.renew_proxy(proxy_ids=proxy_ids_str, days=request.days)
-    except Exception as exc:
-        logger.error("[EXTEND] ошибка вызова renew_proxy: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Ошибка при продлении прокси: {exc}")
-    
-    now = datetime.now(timezone.utc)
-    for proxy in proxies:
-        old_expires = proxy.expires_at
-        if old_expires and old_expires.replace(tzinfo=timezone.utc) > now:
-            proxy.expires_at = old_expires + timedelta(days=request.days)
-        else:
-            proxy.expires_at = now + timedelta(days=request.days)
-
-    user_api_key.balance = current_balance - total_cost
-
-    tx = Transaction(
-        user_id=current_user.id,
-        api_key_id=user_api_key.id,
-        type=TransactionType.extend,
-        amount=-total_cost,
-        description=f"Продление {len(proxies)} прокси на {request.days} дн. ({proxy_ids_str})",
+    return await extend_proxies_service(
+        db=db,
+        current_user=current_user,
+        proxy_ids=request.proxy_ids,
+        days=request.days
     )
-    db.add(tx)
-    await db.commit()
-
-    logger.info(
-        "[EXTEND] OK user_id=%s proxies=%s days=%s cost=%s",
-        current_user.id, len(proxies), request.days, total_cost,
-    )
-    return {
-        "status": "success",
-        "extended": len(proxies),
-        "days": request.days,
-        "total_cost": str(total_cost),
-    }
