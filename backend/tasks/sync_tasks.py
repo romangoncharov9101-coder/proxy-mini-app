@@ -91,7 +91,7 @@ def sync_regions_task(self):
 
                 db_reg.ip_type = reg.get('ip_type', 'STATIC_DATACENTER')
                 db_reg.list_price = _to_decimal(reg.get('list_price', 0.00))
-                db_reg.ip_version = reg.get('ip_version', 'IPv4')
+                db_reg.ip_version = reg.get('ip_version')
                 db_reg.country = reg.get('country', 'Unknown')
                 db_reg.country_code = reg.get('country_code', 'XX')
                 db_reg.region = reg.get('region', 'Unknown')

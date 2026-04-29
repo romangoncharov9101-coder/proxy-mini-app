@@ -61,7 +61,7 @@ class Proxy(Base):
     host = Column(String(100), nullable=False)
     public_ip = Column(String(100))
     port = Column(Integer, nullable=False)
-    type = Column(String(20), default='socks5')
+    type = Column(String(20))
 
     username = Column(String(255), nullable=True)
     password = Column(String(255), nullable=True)

@@ -44,7 +44,11 @@ function renderAdminProxyDetail(container, p) {
                     <span class="text-[9px] font-bold">${p.is_active ? 'АКТИВЕН' : 'НЕАКТИВЕН'}</span>
                 </div>
             </div>
-            <div class="text-[8px] font-bold text-gray-400">${p.type||'SOCKS5'} • ${p.ip_version||'IPv4'} • ${(p.ip_type||'').replace('_',' ')}</div>
+            <div class="text-[8px] font-bold text-gray-400">${p.type} • ${p.ip_version} • ${(p.ip_type).replace('_',' ')}</div>
+            <div class="text-[9px] font-bold text-gray-500">
+                Страна прокси: ${p.checked_location || '—'} 
+                (${p.location_match ? 'совпадает' : 'не совпадает'})
+            </div>
         </div>
 
         <!-- Владелец и ключ -->

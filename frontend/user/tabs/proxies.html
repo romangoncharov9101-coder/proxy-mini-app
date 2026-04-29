@@ -147,7 +147,7 @@ function renderProxyItems(items) {
                             <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
                         </div>
                         <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
-                            ${p.type || 'socks5'} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
+                            ${p.type} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
                         </div>
                     </div>
                 </div>
@@ -239,25 +239,19 @@ function _updateSelectionBar() {
 
 async function openProxyDetail(proxyId) {
     const body = document.getElementById('proxy-detail-body');
-
-    if (body) {
-        body.innerHTML = '<div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>';
-    }
-
+    if (body) body.innerHTML = '<div class="text-center py-10 animate-pulse ...">ЗАГРУЗКА...</div>';
     document.getElementById('proxy-detail-modal')?.classList.remove('hidden');
 
     try {
         const res = await fetch(`${USER_PROXIES_API}/${proxyId}`, {
             headers: { 'X-TG-Init-Data': TG_INIT }
         });
-
         if (!res.ok) throw new Error(res.status);
 
-        renderProxyDetail(body, await res.json());
+        const proxy = await res.json();
+        renderProxyDetail(body, proxy);
     } catch (e) {
-        if (body) {
-            body.innerHTML = '<div class="text-red-500 text-[10px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ ДАННЫХ</div>';
-        }
+        if (body) body.innerHTML = '<div class="text-red-500 ...">ОШИБКА ЗАГРУЗКИ ДАННЫХ</div>';
     }
 }
 
@@ -266,7 +260,7 @@ function renderProxyDetail(container, p) {
 
     const expires = p.expires_at ? new Date(p.expires_at).toLocaleString('ru-RU') : '—';
     const bought = p.purchased_at ? new Date(p.purchased_at).toLocaleString('ru-RU') : '—';
-    const connStr = `${p.type || 'socks5'}://${p.username || ''}:${p.password || ''}@${p.host}:${p.port}`;
+    const connStr = `${p.type}://${p.username || ''}:${p.password || ''}@${p.host}:${p.port}`;
 
     container.innerHTML = `
         <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
@@ -328,25 +322,12 @@ function renderProxyDetail(container, p) {
                     <div class="text-[10px] font-black">АВТОПРОДЛЕНИЕ</div>
                     <div class="text-[8px] text-gray-400 font-bold normal-case">Автоматически продлевать по истечении</div>
                 </div>
+                <button id="adm-auto-extend-${p.id}"
+                    onclick="userToggleAutoExtend(${p.id}, ${!p.auto_extend})"
+                    class="border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${p.auto_extend ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}">
+                    ${p.auto_extend ? 'ВКЛ' : 'ВЫКЛ'}
+                </button>
                 <span id="ae-saving-${p.id}" class="text-[8px] font-black text-gray-400 hidden">СОХРАНЕНИЕ...</span>
-            </div>
-
-            <div class="flex gap-2">
-                <label class="flex-1 cursor-pointer">
-                    <input type="radio" name="ae_${p.id}" value="true"
-                        ${p.auto_extend ? 'checked' : ''}
-                        onchange="setAutoExtend(${p.id}, true)"
-                        class="sr-only peer">
-                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">ВКЛ</div>
-                </label>
-
-                <label class="flex-1 cursor-pointer">
-                    <input type="radio" name="ae_${p.id}" value="false"
-                        ${!p.auto_extend ? 'checked' : ''}
-                        onchange="setAutoExtend(${p.id}, false)"
-                        class="sr-only peer">
-                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">ВЫКЛ</div>
-                </label>
             </div>
         </div>
 
@@ -354,6 +335,28 @@ function renderProxyDetail(container, p) {
             PROXY_ID: ${p.ipfoxy_proxy_id || '—'} · ORDER: ${p.ipfoxy_order_id || '—'}
         </div>
     `;
+}
+
+async function userToggleAutoExtend(proxyId, newValue) {
+    const btn = document.getElementById('adm-auto-extend-' + proxyId);
+    if (btn) { btn.disabled = true; btn.innerText = '...'; }
+    try {
+        const res = await fetch(`/api/v1/user/proxies/${proxyId}/auto-extend`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ auto_extend: newValue })
+        });
+        if (!res.ok) throw new Error(res.status);
+        if (btn) {
+            btn.innerText = newValue ? 'ВКЛ' : 'ВЫКЛ';
+            btn.className = `border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${newValue ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}`;
+            btn.onclick = () => userToggleAutoExtend(proxyId, !newValue);
+            btn.disabled = false;
+        }
+    } catch(e) {
+        window.Telegram.WebApp.showAlert('ОШИБКА');
+        if (btn) { btn.disabled = false; }
+    }
 }
 
 function togglePwd(id, pwd) {

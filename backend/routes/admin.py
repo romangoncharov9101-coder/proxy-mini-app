@@ -493,7 +493,7 @@ async def get_proxy_detail_admin(
         ip_version=proxy.ip_version,
         country_code=proxy.country_code,
         area_id=proxy.area_id,
-        auto_extend=proxy.auto_extend,
+        auto_extend=proxy.auto_extend_local,
         is_active=proxy.is_active,
         purchased_at=proxy.purchased_at,
         expires_at=proxy.expires_at,

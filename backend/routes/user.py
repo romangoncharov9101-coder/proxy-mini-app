@@ -125,8 +125,8 @@ async def get_countries(
                         {
                             "id":           r.id,
                             "area_id":      r.area_id,
-                            "ip_type":      r.ip_type or "STATIC",
-                            "ip_version":   r.ip_version or "IPv4",
+                            "ip_type":      r.ip_type,
+                            "ip_version":   r.ip_version,
                             "country":      r.country,
                             "country_code": r.country_code,
                             "retail_price": float(r.retail_price) if r.retail_price else 0.0,
@@ -256,7 +256,28 @@ async def get_proxy_detail(
         logger.warning("[PROXY_DETAIL] proxy_id=%s не найден для user_id=%s", proxy_id, current_user.id)
         raise HTTPException(status_code=404, detail="Прокси не найден")
 
-    return proxy
+    return schemas.ProxyDetail(
+        id=proxy.id,
+        ipfoxy_proxy_id=proxy.ipfoxy_proxy_id,
+        ipfoxy_order_id=proxy.ipfoxy_order_id,
+        host=proxy.host,
+        public_ip=proxy.public_ip,
+        port=proxy.port,
+        type=proxy.type,
+        username=proxy.username,
+        password=proxy.password,
+        ip_type=proxy.ip_type,
+        ip_version=proxy.ip_version,
+        country_code=proxy.country_code,
+        area_id=proxy.area_id,
+        auto_extend=proxy.auto_extend_local,
+        is_active=proxy.is_active,
+        purchased_at=proxy.purchased_at,
+        expires_at=proxy.expires_at,
+        renewal_at=proxy.renewal_at,
+        checked_location=proxy.checked_location,
+        location_match=proxy.location_match,
+    )
 
 @router.post("/calculate-price")
 async def calculate_order_price(
@@ -476,7 +497,7 @@ async def activate_proxies_background(
                         port=int(p.get("port")),
                         username=p.get("user") or p.get("username"),
                         password=p.get("password"),
-                        type=p.get("type") or "socks5",
+                        type=p.get("type"),
                         area_id=str(area_id),
                         country_code=expected_country_code,
                         expires_at=datetime.fromtimestamp(int(raw_expire), tz=timezone.utc) if raw_expire else None,
@@ -484,6 +505,8 @@ async def activate_proxies_background(
                         location_match=location_match,
                         auto_extend=False,
                         auto_extend_local=False,
+                        ip_version=p.get("ip_version"),
+                        ip_type=p.get("ip_type"),
                     )
                     db.add(new_proxy)
                     added_count += 1
@@ -497,165 +520,6 @@ async def activate_proxies_background(
         except Exception as exc:
             logger.error("[ACTIVATE] order_id=%s — критическая ошибка: %s", order_id, exc, exc_info=True)
             await db.rollback()
-
-# @router.post("/purchase-proxy")
-# async def purchase_proxy_endpoint(
-#     request: schemas.ProxyPurchaseRequest,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     """
-#     Покупает прокси через API ключ пользователя.
-#     1. Проверяет наличие привязанного ключа
-#     2. Проверяет достаточность баланса
-#     3. Создаёт заказ, сохраняет прокси и транзакцию в БД
-#     """
-#     user_id = getattr(current_user, "id", "—")
-#     logger.info(
-#         "[PURCHASE] user_id=%s area_id=%s num=%d days=%d",
-#         current_user.id, request.area_id, request.num, request.days,
-#     )
-
-#     try:
-#         service_data = await IPFoxyService.get_service_by_user(db, current_user)
-#         if not service_data:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail='К вашему аккаунту не привязан активный API ключ. Обратитесь к администратору.',
-#             )
-#         service, user_api_key = service_data
-
-#         total_cost = await service.get_order_price(
-#             order_type="BUY",
-#             area_id=request.area_id,
-#             num=request.num,
-#             days=request.days,
-#         )
-
-#         current_balance = user_api_key.balance or Decimal("0.00")
-#         if current_balance < total_cost:
-#             logger.warning(f'[PURCHASE] user_id={user_id} — недостаточно средств: баланс={current_balance} цена={total_cost}')
-#             raise HTTPException(status_code=400, detail=f'Недостаточно средств на балансе ключа. Баланс: {current_balance} USD, требуется: {total_cost} USD.')
-    
-#         region_res = await db.execute(select(Regions).where(Regions.area_id == str(request.area_id)))
-#         region = region_res.scalar_one_or_none()
-
-#         if not region:
-#             raise HTTPException(status_code=400, detail='Регион не найден')
-
-#         expected_country_code = region.country_code
-
-#         # ── Покупка ───────────────────────────────────────────────────────────
-#         order_id = await service.purchase_proxy(
-#             area_id=request.area_id,
-#             num=request.num,
-#             days=request.days,
-#         )
-#         if not order_id:
-#             raise ValueError('Не получен order_id от провайдера')
-
-#         order_details = await service.get_order_information(order_id)
-#         if order_details.get('code') not in (0, 200):
-#             logger.error(
-#                 '[PURCHASE] user_id=%s order_id=%s — ошибка деталей заказа: %s. '
-#                 'Деньги уже списаны — пробуем получить прокси напрямую.',
-#                 user_id, order_id, order_details.get('msg'),
-#             )
-
-#         try:
-#             new_balance = await service.get_balance()
-#             user_api_key.balance = new_balance
-#         except Exception as exc:
-#             logger.warning('[PURCHASE] user_id=%s — не удалось обновить баланс: %s', user_id, exc)
-#             user_api_key.balance = current_balance - total_cost
-
-#         order_data = order_details.get('data', {}).get('proxy_ids', [])
-#         proxy_ids_str = ",".join(str(pid) for pid in order_data) if order_data else None
-#         proxies_data = await service.get_proxies_list(1, 50, proxy_ids_str)
-#         if not proxies_data:
-#             logger.error(
-#                 '[PURCHASE] user_id=%s order_id=%s — не удалось получить список прокси! '
-#                 'Деньги списаны, прокси не сохранены. Требуется ручная проверка.',
-#                 user_id, order_id,
-#             )
-#             transaction = Transaction(
-#                 user_id=current_user.id,
-#                 order_id=str(order_id),
-#                 api_key_id=user_api_key.id,
-#                 type=TransactionType.purchase,
-#                 amount=total_cost,
-#                 description=f"Order {order_id}: ОШИБКА ПОЛУЧЕНИЯ ПРОКСИ — требуется ручная проверка",
-#             )
-#             db.add(transaction)
-#             await db.commit()
-#             raise HTTPException(
-#                 status_code=502,
-#                 detail=f'Заказ {order_id} создан и оплачен, но не удалось получить прокси от провайдера. '
-#                        f'Обратитесь к администратору — прокси будут добавлены вручную.',
-#             )
-
-#         for p in proxies_data:
-#             raw_expire = p.get("expire_time")
-#             proxy_host = p.get("host") or p.get("server")
-#             proxy_public_ip = p.get("public_ip") or proxy_host
-
-#             checked_location, location_match = await check_proxy_country_with_ip_api(
-#                 ip_or_host=proxy_public_ip,
-#                 expected_country_code=expected_country_code,
-#             )
-
-#             new_proxy = Proxy(
-#                 owner_id=user_id,
-#                 api_key_id=user_api_key.id,
-
-#                 ipfoxy_proxy_id=str(p.get("id") or p.get("proxy_id")),
-#                 ipfoxy_order_id=str(order_id),
-
-#                 host=proxy_host,
-#                 public_ip=p.get("public_ip"),
-#                 port=int(p.get("port")),
-
-#                 username=p.get("user") or p.get("username"),
-#                 password=p.get("password"),
-#                 type=p.get("type") or "socks5",
-
-#                 ip_type=p.get("ip_type"),
-#                 ip_version=p.get("ip_version"),
-
-#                 area_id=str(request.area_id),
-#                 country_code=expected_country_code,
-
-#                 expires_at=datetime.fromtimestamp(int(raw_expire), tz=timezone.utc) if raw_expire else None,
-
-#                 checked_location=checked_location,
-#                 location_match=location_match,
-
-#                 auto_extend=False,
-#                 auto_extend_local=False,
-#             )
-#             db.add(new_proxy)
-#             logger.debug("[PURCHASE] добавлен прокси host=%s:%s", p.get("server"), p.get("port"))
-
-#         transaction = Transaction(
-#             user_id=user_id,
-#             order_id=str(order_id),
-#             api_key_id=user_api_key.id,
-#             type=TransactionType.purchase,
-#             amount=total_cost,
-#             description=f"Order {order_id}: {request.num} proxies × {request.days}d",
-#         )
-#         db.add(transaction)
-
-#         await db.commit()
-#         logger.info(f'[PURCHASE] user_id={user_id} — заказ {order_id} создан, {len(proxies_data)} прокси')
-#         return {'status': 'success', 'order_id': order_id, 'count': len(proxies_data)}
-
-#     except HTTPException:
-#         raise
-#     except Exception as exc:
-#         await db.rollback()
-#         logger.error(f'[PURCHASE] user_id={user_id} — ошибка: {exc}')
-#         raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {exc}")
 
 @router.patch("/proxies/{proxy_id}/auto-extend")
 async def set_auto_extend(

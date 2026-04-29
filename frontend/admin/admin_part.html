@@ -460,7 +460,7 @@ function buildAdminProxyCard(p) {
                         <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
                     </div>
                     <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
-                        ${p.type || 'socks5'} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
+                        ${p.type} · ${(p.ip_type).replace(/_/g, ' ')}
                     </div>
                 </div>
             </div>
