@@ -375,32 +375,33 @@ async def purchase_proxy_endpoint(
 
         expected_country_code = region.country_code
 
-        order_id = await service.purchase_proxy(
-            area_id=request.area_id,
-            num=request.num,
-            days=request.days,
-        )
-        if not order_id:
-            raise ValueError('Не получен order_id от провайдера')
+        # order_id = await service.purchase_proxy(
+        #     area_id=request.area_id,
+        #     num=request.num,
+        #     days=request.days,
+        # )
+        # if not order_id:
+        #     raise ValueError('Не получен order_id от провайдера')
+        order_id = 'j1ojuc5'
 
         # Сразу обновляем баланс
-        try:
-            user_api_key.balance = await service.get_balance()
-        except Exception as bal_exc:
-            logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
-            user_api_key.balance = current_balance - total_cost
+        # try:
+        #     user_api_key.balance = await service.get_balance()
+        # except Exception as bal_exc:
+        #     logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
+        #     user_api_key.balance = current_balance - total_cost
 
         # Сохраняем транзакцию и сразу отвечаем пользователю
-        transaction = Transaction(
-            user_id=current_user.id,
-            order_id=str(order_id),
-            api_key_id=user_api_key.id,
-            type=TransactionType.purchase,
-            amount=total_cost,
-            description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
-        )
-        db.add(transaction)
-        await db.commit()
+        # transaction = Transaction(
+        #     user_id=current_user.id,
+        #     order_id=str(order_id),
+        #     api_key_id=user_api_key.id,
+        #     type=TransactionType.purchase,
+        #     amount=total_cost,
+        #     description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
+        # )
+        # db.add(transaction)
+        # await db.commit()
 
         # Запускаем фоновую активацию — не блокируем ответ пользователю
         asyncio.create_task(
