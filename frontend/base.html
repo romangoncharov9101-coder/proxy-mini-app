@@ -64,9 +64,10 @@
 
     const TG_INIT = tg.initData;
 
-    async function fetchUserProfile() {
+    async function fetchUserProfile(forceRefresh = false) {
         try {
-            const response = await fetch('/api/v1/user/me', {
+            const url = forceRefresh ? '/api/v1/user/me?force_refresh=true' : '/api/v1/user/me';
+            const response = await fetch(url, {
                 headers: { 'X-TG-Init-Data': TG_INIT }
             });
 

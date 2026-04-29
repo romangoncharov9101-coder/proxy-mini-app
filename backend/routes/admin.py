@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,6 +7,8 @@ from sqlalchemy import select, func, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timezone
+from sqlalchemy.orm import aliased
+from sqlalchemy import or_
 
 from backend.database.database import get_db
 from backend.database import schemas
@@ -44,6 +47,22 @@ async def get_api_keys(
     
     result = await db.execute(stmt)
     keys = result.scalars().all()
+
+    async def _fetch_balance(key: ApiKey) -> None:
+        try:
+            service = IPFoxyService.get_service_by_key_obj(key)
+            key.balance = await service.get_balance()
+            key.last_checked = datetime.now(timezone.utc)
+        except Exception as exc:
+            logger.warning(f'[KEYS] не удалось получить баланс key_id={key.api_id} name={key.key_name}: {exc}')
+
+    await asyncio.gather(*(_fetch_balance(k) for k in keys))
+
+    try:
+        await db.commit()
+    except Exception as exc:
+        logger.error(f'[KEYS] ошибка сохранения баланса: {exc}')
+
     return keys
 
 @router.post('/keys', response_model=schemas.ApiKeyResponse, status_code=status.HTTP_201_CREATED)
@@ -216,28 +235,30 @@ async def get_users(
     '''
     logger.info('[ADMIN_USERS] admin_id=%s last_id=%s limit=%s key_id=%s', admin.id, last_id, limit, key_id)
 
-    stmt = (
-        select(User, ApiKey.key_name)
-        .outerjoin(ApiKey, User.api_key_id == ApiKey.id)
-        .where(User.role == UserRole.user)
-        .order_by(User.id.asc())
-    )
+    stmt = select(User, ApiKey.key_name).outerjoin(ApiKey, User.api_key_id == ApiKey.id)
+
+    if last_id:
+        stmt = stmt.where(User.id > last_id)
 
     if search:
-        search_filter = f'%{search}%'
         stmt = stmt.where(
-            (func.cast(User.telegram_id, String).ilike(search_filter)) |
-            (User.username.ilike(search_filter)) |
-            (User.first_name.ilike(search_filter))
+            or_(
+                User.telegram_id == search if search.isdigit() else False,
+                User.username.ilike(f"%{search}%"),
+                User.first_name.ilike(f"%{search}%")
+            )
         )
-    if last_id is not None:
-        stmt = stmt.where(User.id > last_id)
     if key_id is not None:
         stmt = stmt.where(User.api_key_id == key_id)
 
-    stmt = stmt.limit(limit)
+    stmt = stmt.order_by(User.id.desc())
+    stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)
     rows = result.all()
+
+    has_more = len(rows) > limit
+    raw_items = rows[:limit]
+    next_cursor = raw_items[-1][0].id if (has_more and raw_items) else None
 
     items = []
     for user_obj, key_name in rows:
@@ -252,7 +273,7 @@ async def get_users(
             created_at=user_obj.created_at,
         ))
 
-    logger.debug('[ADMIN_USERS] возвращено %d пользователей', len(items))
+    logger.debug(f'[ADMIN_USERS] возвращено {len(items)} пользователей, has_more={has_more}')
     return items
 
 @router.post('/whitelist', response_model=schemas.WhitelistResponse, status_code=status.HTTP_201_CREATED)
@@ -557,14 +578,14 @@ async def get_all_transactions(
         '[ADMIN_TX] admin_id=%s last_id=%s limit=%s key_id=%s user_id=%s',
         admin.id, last_id, limit, key_id, user_id_filter,
     )
+    UserAlias = aliased(User)
 
     stmt = (
         select(Transaction, User.telegram_id, ApiKey.key_name)
-        .outerjoin(User,   Transaction.user_id    == User.id)
+        .outerjoin(User, Transaction.user_id == User.id)
         .outerjoin(ApiKey, Transaction.api_key_id == ApiKey.id)
-        .order_by(Transaction.id.desc())
     )
-    
+
     if date_from:
         stmt = stmt.where(Transaction.created_at >= date_from)
     if date_to:
@@ -572,10 +593,14 @@ async def get_all_transactions(
 
     if last_id:
         stmt = stmt.where(Transaction.id < last_id)
+
     if key_id:
         stmt = stmt.where(Transaction.api_key_id == key_id)
+
     if user_id_filter:
-        stmt = stmt.where(Transaction.user_id == user_id_filter)
+        stmt = stmt.where(User.telegram_id == user_id_filter)
+
+    stmt = stmt.order_by(Transaction.id.desc())
 
     stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)

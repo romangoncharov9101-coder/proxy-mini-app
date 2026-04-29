@@ -19,7 +19,7 @@ async def check_proxy_country_with_ip_api(
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             res = await client.get(
-                f'http:/ip-api.com/json/{{ip_or_host}}',
+                f'http://ip-api.com/json/{ip_or_host}',
                 params = {
                     'fields': 'status,message,country,countryCode,query',
                     'lang': 'en',

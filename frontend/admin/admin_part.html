@@ -177,8 +177,15 @@ function switchKeysSubTab(tab) {
     document.getElementById('sub-tab-keys-btn').className  = `flex-1 py-2 text-center border-r border-black cursor-pointer ${isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
     document.getElementById('sub-tab-users-btn').className = `flex-1 py-2 text-center cursor-pointer ${!isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
 
-    if (!isKeys && adminUsersState.nextCursor === null && adminUsersState.hasMore) {
-        loadNextUsersPage();
+    if (!isKeys) {
+        const container = document.getElementById('admin-users-list');
+        // БАГ-ФИКС: проверяем что контейнер пуст — иначе при повторном
+        // открытии вкладки (например после закрытия модала ключа) записи дублировались,
+        // т.к. nextCursor===null && hasMore===true выполнялось снова.
+        const isEmpty = !container || container.children.length === 0;
+        if (isEmpty && adminUsersState.hasMore) {
+            loadNextUsersPage();
+        }
     }
 }
 
@@ -272,18 +279,19 @@ async function loadNextUsersPage() {
     const container = document.getElementById('admin-users-list');
     const statusEl = document.getElementById('admin-users-status');
     const search = document.getElementById('filter-users-search')?.value || '';
+    const keyId = adminUsersState.keyId;
 
     adminUsersState.isLoading = true;
-    const status = document.getElementById('admin-users-status');
-    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+    statusEl.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
 
     try {
         const params = new URLSearchParams({ limit: 30 });
         if (adminUsersState.nextCursor != null) params.append('last_id', adminUsersState.nextCursor);
         if (search) params.append('search', search);
+        if (keyId) params.append('key_id', keyId);
 
         const res = await fetch(`/api/v1/admin/users?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
-        if (!res.ok) throw new Error(res.status);
+        if (!res.ok) throw new Error(res.statusEl);
         const items = await res.json();
 
         if (!items.length && !adminUsersState.nextCursor) {
@@ -295,9 +303,9 @@ async function loadNextUsersPage() {
             adminUsersState.hasMore    = items.length === 30;
         }
 
-        status.innerText = adminUsersState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : 'КОНЕЦ СПИСКА';
+        statusEl.innerText = adminUsersState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : 'КОНЕЦ СПИСКА';
     } catch(e) {
-        status.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
+        statusEl.innerHTML = '<span class="text-red-500">ОШИБКА</span>';
     } finally { adminUsersState.isLoading = false; }
 }
 
@@ -346,8 +354,6 @@ async function loadNextAdminProxiesPage() {
     const statusEl = document.getElementById('admin-proxies-status');
 
     const search = document.getElementById('filter-proxies-search').value;
-    const country = document.getElementById('filter-proxies-country').value;
-    const expired = document.getElementById('filter-proxies-expired').value;
 
     const status = document.getElementById('admin-proxies-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
@@ -356,8 +362,6 @@ async function loadNextAdminProxiesPage() {
         const params = new URLSearchParams({ limit: 20 });
         if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
         if (search) params.append('search', search);
-        if (country) params.append('country_code', country);
-        if (expired) params.append('expired', expired);
 
         const res = await fetch(`/api/v1/admin/proxies?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);

@@ -152,7 +152,7 @@ class IPFoxyService:
         logger.info(f'[BALANCE] key_name={self.key_name} - {Decimal(str(balance))} USD')
         return Decimal(str(balance))
     
-    async def get_proxies_list(self, page: int = 1, page_size: int = 20, proxy_ids: str = None) -> list[dict]:
+    async def get_proxies_list(self, page: int = 1, page_size: int = 20, proxy_ids = None) -> list[dict]:
         """ Получить список всех прокси связанных с АПИ ключами """
         if isinstance(proxy_ids, list):
             proxy_ids = ','.join(str(pid) for pid in proxy_ids)
@@ -163,7 +163,7 @@ class IPFoxyService:
             params={'page': page, 'page_size': page_size, 'proxy_ids': proxy_ids}
         )
         proxies_list = data.get('data', {}).get('list', [])
-        logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(list)} прокси (стр. {page})')
+        logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(proxies_list)} прокси (стр. {page})')
         return proxies_list
     
     async def renew_proxy(self, proxy_ids: str, days: int = 30) -> dict:
@@ -196,11 +196,13 @@ class IPFoxyService:
     
     async def get_order_information(self, order_id) -> dict:
         """ Получить информацию по одному СУЩЕСТВУЮЩЕМУ заказу """
-        return await self._make_request(
+        result = await self._make_request(
             'GET',
             '/ip/open-api/order-info',
             params={'order_id': order_id}
         )
+        logger.info(f'[SERVICE.ORDER_INFO] full response: {result}')
+        return result
     
     async def get_order_price(self, order_type: str, area_id: int = None, proxy_ids: list[str] = None, num: int = None, days: int = 30) -> Decimal:
         """

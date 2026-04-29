@@ -182,7 +182,11 @@ async function executePurchase() {
 
         closeDurationModal();
         if (typeof showPurchaseSuccess === 'function') showPurchaseSuccess(data);
-        fetchUserProfile();
+        fetchUserProfile(true);
+
+        setTimeout(() => {
+            if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
+        }, 60000);
     } catch(e) {
         closeDurationModal();
         if (typeof showPurchaseError === 'function') showPurchaseError(e.message);

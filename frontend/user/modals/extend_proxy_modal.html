@@ -95,7 +95,7 @@
         });
         document.getElementById('extend-modal-loader').classList.add('hidden');
         const btn = document.getElementById('extend-confirm-btn');
-        if (btn) {btn.disable = false; btn.innerHTML = 'ПРОДЛИТЬ С БАЛАНСА';}
+        if (btn) {btn.disabled = false; btn.innerHTML = 'ПРОДЛИТЬ С БАЛАНСА';}
         _extendState.days = null;
     }
 
@@ -160,13 +160,13 @@
             if (typeof showExtendSuccess === 'function') {
                 showExtendSuccess(data);
             } else if (typeof showPurchaseSuccess === 'function') {
-                showPurchaseSuccess({ order_id: '—', count: data.extended });
+                showPurchaseSuccess({ order_id: data.order_id || '—', count: data.extended });
             }
 
             if (typeof clearProxySelection === 'function') clearProxySelection();
             if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
             if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
-            if (typeof fetchUserProfile === 'function') fetchUserProfile();
+            if (typeof fetchUserProfile === 'function') fetchUserProfile(true);  // force_refresh — деньги только что списаны
         } catch(e) {
             closeExtendModal();
             if (typeof showPurchaseError === 'function') showPurchaseError(e.message);

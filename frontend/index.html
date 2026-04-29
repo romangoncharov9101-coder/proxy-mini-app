@@ -30,6 +30,36 @@ function renderInterface(user) {
     }
 }
 
+let _extendProxyIds = [];
+
+function openExtendModal(proxyIds) {
+    _extendProxyIds = proxyIds;
+
+    const modal = document.getElementById('days-option-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+async function confirmExtendDays(days) {
+    if (!_extendProxyIds.length) return;
+
+    try {
+        const res = await fetch('/api/v1/user/proxies/extend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ proxy_ids: _extendProxyIds, days: days })
+        });
+
+        if (!res.ok) throw new Error(res.status);
+
+        await res.json();
+        smartCloseModal('days-option-modal');
+        resetAndReloadProxies();
+        document.getElementById('extend-success-modal')?.classList.remove('hidden');
+    } catch(e) {
+        window.Telegram?.WebApp?.showAlert('Ошибка продления');
+    }
+}
+
 document.getElementById('main-scroll')?.addEventListener('scroll', function() {
     const sc = this;
     const nearBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 220;

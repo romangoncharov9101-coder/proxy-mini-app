@@ -156,9 +156,13 @@ function resetAndReloadMarket() {
 // ── Публичные функции покупки ──
 function showPurchaseSuccess(orderData) {
     const info = document.getElementById('purchase-success-info');
+    // БАГ-ФИКС: бэкенд возвращает {status:'pending', order_id, message} — поля count нет.
+    // Берём количество из currentSelection.quantity (актуально на момент покупки).
+    const count = orderData.count ?? currentSelection?.quantity ?? '—';
     if (info) info.innerHTML = `
         <div class="flex justify-between"><span>ЗАКАЗ</span><span class="font-black">#${orderData.order_id}</span></div>
-        <div class="flex justify-between"><span>КУПЛЕНО</span><span class="font-black">${orderData.count} ШТ.</span></div>
+        <div class="flex justify-between"><span>КУПЛЕНО</span><span class="font-black">${count} ШТ.</span></div>
+        <div class="flex justify-between"><span>СТАТУС</span><span class="font-black">АКТИВАЦИЯ...</span></div>
     `;
     document.getElementById('purchase-success-modal')?.classList.remove('hidden');
     resetAndReloadProxies();

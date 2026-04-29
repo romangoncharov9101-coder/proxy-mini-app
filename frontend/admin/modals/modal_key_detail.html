@@ -103,7 +103,7 @@ function renderKeyDetail(container, k) {
                 class="border-2 border-black py-2 text-[9px] font-black hover:bg-zinc-100 transition-all">
                 РЕДАКТИРОВАТЬ
             </button>
-            <button onclick="smartCloseModal('key-detail-modal'); switchKeysSubTab('users'); filterUsersByKey(${k.id})"
+            <button onclick="smartCloseModal('key-detail-modal'); filterUsersByKey(${k.id})"
                 class="border-2 border-black py-2 text-[9px] font-black hover:bg-zinc-100 transition-all">
                 ПОЛЬЗОВАТЕЛИ
             </button>
@@ -148,19 +148,12 @@ document.getElementById('edit-key-form').addEventListener('submit', async (e) =>
     else window.Telegram.WebApp.showAlert('ОШИБКА ОБНОВЛЕНИЯ');
 });
 
-/* Фильтрация пользователей по ключу */
+
 async function filterUsersByKey(keyId) {
-    adminUsersState = { nextCursor: null, hasMore: true, isLoading: false };
+    adminUsersState = { nextCursor: null, hasMore: true, isLoading: false, keyId: keyId };
     const container = document.getElementById('admin-users-list');
     container.innerHTML = '';
-    const status = document.getElementById('admin-users-status');
-    status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
-    try {
-        const res = await fetch(`/api/v1/admin/users?key_id=${keyId}&limit=100`, { headers: { 'X-TG-Init-Data': TG_INIT } });
-        const users = await res.json();
-        users.forEach(u => container.appendChild(buildUserCard(u)));
-        adminUsersState.hasMore = false;
-        status.innerText = `КЛЮЧ #${keyId} — ${users.length} ПОЛЬЗОВАТЕЛЕЙ`;
-    } catch(e) { status.innerHTML = '<span class="text-red-500">ОШИБКА</span>'; }
+    switchKeysSubTab('users');
+    loadNextUsersPage();
 }
 </script>
