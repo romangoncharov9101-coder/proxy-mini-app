@@ -1,6 +1,5 @@
 <div id="user-layout" class="hidden">
 
-    <!-- Навигация -->
     <nav class="flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
         <div id="tab-proxies" onclick="switchUserTab('proxies')"
              class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer transition-all">
@@ -16,15 +15,12 @@
 
         <!-- ══ ВКЛАДКА: МОИ ПРОКСИ ══ -->
         <section id="tab-content-proxies">
-            <!-- Поиск и фильтры -->
             <div class="space-y-2 mb-3">
                 <input type="text" id="proxy-search"
                        placeholder="ПОИСК (IP, HOSTNAME, ORDER ID)..."
                        oninput="debounceProxySearch()"
                        class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
             </div>
-
-            <!-- Панель мультиселекта (скрыта, пока ничего не выбрано) -->
             <div id="user-proxy-selection-bar"
                  class="hidden sticky top-0 z-20 bg-white border-2 border-black p-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-2 mb-2">
                 <span id="user-proxy-selection-count" class="text-[9px] font-black uppercase"></span>
@@ -40,17 +36,14 @@
                 </div>
             </div>
 
-            <!-- Список прокси (контейнер) -->
             <div id="user-proxies-container" class="space-y-3"></div>
             <div id="user-proxies-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
 
-            <!-- Подключаем логику прокси (БЕЗ дублирования контейнера) -->
             {% include "user/tabs/proxies.html" %}
         </section>
 
         <!-- ══ ВКЛАДКА: МАРКЕТ ══ -->
         <section id="tab-content-market" class="hidden">
-            <!-- Поиск по странам -->
             <div class="mb-3">
                 <input type="text" id="country-search"
                        placeholder="НАЙТИ СТРАНУ..."
@@ -58,18 +51,15 @@
                        class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
             </div>
 
-            <!-- Список стран (контейнер) -->
             <div id="countries-container" class="space-y-3"></div>
             <div id="market-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
 
-            <!-- Подключаем логику маркета (БЕЗ дублирования контейнера) -->
             {% include "user/tabs/market.html" %}
         </section>
 
     </div>
 </div>
 
-<!-- Модал: успешная покупка -->
 <div id="purchase-success-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
     <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
         <div class="bg-black text-white p-4 text-center">
@@ -86,7 +76,6 @@
     </div>
 </div>
 
-<!-- Модал: ошибка покупки -->
 <div id="purchase-error-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
     <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
         <div class="bg-black text-white p-4 text-center">
@@ -104,6 +93,7 @@
 </div>
 
 {% include "user/modals/days_option_modal.html" %}
+{% include "shared/modal_proxy_detail.html" %}
 
 <script>
 let marketState  = { nextCursor: null, hasMore: true, isLoading: false };
@@ -113,9 +103,9 @@ let _countrySearchTimeout = null;
 
 async function initUser() {
     await resetAndReloadProxies();
+    await resetAndReloadMarket();
 }
 
-// ── Переключение вкладок ──
 function switchUserTab(tab) {
     ['proxies', 'market'].forEach(t => {
         document.getElementById('tab-content-' + t).classList.toggle('hidden', t !== tab);
@@ -127,14 +117,12 @@ function switchUserTab(tab) {
 
     if (tab === 'market') {
         const container = document.getElementById('countries-container');
-        // Грузим только если контейнер пустой
         if (container && container.children.length === 0) {
             resetAndReloadMarket();
         }
     }
 }
 
-// ── Debounce для поиска ──
 function debounceProxySearch() {
     clearTimeout(_proxySearchTimeout);
     _proxySearchTimeout = setTimeout(() => resetAndReloadProxies(), 450);
@@ -145,19 +133,15 @@ function debounceCountrySearch() {
     _countrySearchTimeout = setTimeout(() => resetAndReloadMarket(), 400);
 }
 
-// ── Сброс и перезагрузка маркета ──
 function resetAndReloadMarket() {
     marketState = { nextCursor: null, hasMore: true, isLoading: false };
     const container = document.getElementById('countries-container');
     if (container) container.innerHTML = '';
-    loadNextMarketPage(); // определена в market.html
+    loadNextMarketPage();
 }
 
-// ── Публичные функции покупки ──
 function showPurchaseSuccess(orderData) {
     const info = document.getElementById('purchase-success-info');
-    // БАГ-ФИКС: бэкенд возвращает {status:'pending', order_id, message} — поля count нет.
-    // Берём количество из currentSelection.quantity (актуально на момент покупки).
     const count = orderData.count ?? currentSelection?.quantity ?? '—';
     if (info) info.innerHTML = `
         <div class="flex justify-between"><span>ЗАКАЗ</span><span class="font-black">#${orderData.order_id}</span></div>

@@ -1,0 +1,254 @@
+<div id="proxy-detail-modal"
+     class="modal-overlay hidden fixed inset-0 bg-black/70 z-[80] flex items-end justify-center">
+    <div class="bg-white border-t-4 border-black w-full max-w-md shadow-[0_-8px_0px_0px_rgba(0,0,0,1)] max-h-[85vh] flex flex-col">
+        <div class="bg-black text-white px-4 py-3 flex justify-between items-center shrink-0">
+            <span id="proxy-detail-modal-title" class="text-[10px] font-black tracking-widest">ИНФОРМАЦИЯ О ПРОКСИ</span>
+            <button onclick="smartCloseModal('proxy-detail-modal')" class="text-xl font-black leading-none">×</button>
+        </div>
+        <div id="proxy-detail-body" class="overflow-y-auto no-scrollbar p-4 space-y-4 flex-1">
+            <div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let _proxyDetailCtx = {
+        isAdmin: false,
+        apiBase: '/api/v1/user/proxies',
+    }
+
+    async function openProxyDetailModal(proxyId, opts={}) {
+        _proxyDetailCtx.isAdmin = opts.isAdmin ?? false;
+        _proxyDetailCtx.apiBase = opts.apiBase ?? '/api/v1/user/proxies';
+
+        const modal = document.getElementById('proxy-detail-modal');
+        const body  = document.getElementById('proxy-detail-body');
+        const title = document.getElementById('proxy-detail-modal-title');
+
+        title.innerText = _proxyDetailCtx.isAdmin
+            ? 'ПРОКСИ - СИСТЕМНАЯ ИНФОРМАЦИЯ'
+            : 'ИНФОРМАЦИЯ О ПРОКСИ';
+
+        body.innerHTML = '<div class="text-center py-10 animate-pulse text-[9px] font-black text-gray-400">ЗАГРУЗКА...</div>';
+        modal.classList.remove('hidden');
+
+        try {
+            const res = await fetch(`${_proxyDetailCtx.apiBase}/${proxyId}`, {
+                headers: {'X-TG-Init-Data': TG_INIT}
+            });
+            if (!res.ok) throw new Error(res.status);
+            const proxy = await res.json();
+            _renderProxyDetail(body, proxy, _proxyDetailCtx.isAdmin);
+        } catch(e) {
+            body.innerHTML = '<div class="text-red-500 text-[9px] font-black text-center py-6">ОШИБКА ЗАГРУЗКИ</div>';
+        }
+    }
+
+    function openProxyDetail(proxyId) {
+        openProxyDetailModal(proxyId, { isAdmin: false, apiBase: '/api/v1/user/proxies' });
+    }
+    function openAdminProxyDetail(proxyId) {
+        openProxyDetailModal(proxyId, { isAdmin: true, apiBase: '/api/v1/admin/proxies' });
+    }
+
+    // ─── Рендер ───────────────────────────────────────────────────────────────
+    function _renderProxyDetail(container, p, isAdmin) {
+        const expires = p.expires_at ? new Date(p.expires_at).toLocaleString('ru-RU') : '-';
+        const bought = p.purchased_at ? new Date(p.purchased_at).toLocaleString('ru-RU') : '-';
+        const renewal = p.renewal_at ? new Date(p.renewal_at).toLocaleString('ru-RU') : '-';
+        const connStr = `${p.type}://${p.username || ''}:${p.password || ''}@${p.host}:${p.port}`;
+
+        const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const adminSystemBlock = isAdmin ? `
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="text-[9px] font-black text-gray-400 mb-1">СИСТЕМНАЯ ИНФОРМАЦИЯ</div>
+            <div class="flex justify-between text-[9px]">
+                <span class="font-bold text-gray-400">ВЛАДЕЛЕЦ</span>
+                <span class="font-black">${p.owner_username || '—'} ${p.owner_tg_id ? '(' + p.owner_tg_id + ')' : ''}</span>
+            </div>
+            <div class="flex justify-between text-[9px]">
+                <span class="font-bold text-gray-400">API КЛЮЧ</span>
+                <span class="font-black">${_truncate(p.api_key_name, 40)}</span>
+            </div>
+            <div class="flex justify-between text-[9px]">
+                <span class="font-bold text-gray-400">РЕГИОН ID</span>
+                <span class="font-black">${p.area_id || '—'}</span>
+            </div>
+            <div class="flex justify-between text-[9px]">
+                <span class="font-bold text-gray-400">PROXY_ID</span>
+                <span class="font-black">${p.ipfoxy_proxy_id || '—'}</span>
+            </div>
+            <div class="flex justify-between text-[9px]">
+                <span class="font-bold text-gray-400">ORDER_ID</span>
+                <span class="font-black">${p.ipfoxy_order_id || '—'}</span>
+            </div>
+        </div>` : '';
+
+        const userConnBlock = !isAdmin ? `
+        <div class="border-2 border-black p-3">
+            <div class="text-[9px] font-black text-gray-400 mb-1">СТРОКА ПОДКЛЮЧЕНИЯ</div>
+            <div class="text-[8px] font-mono normal-case bg-zinc-50 p-2 break-all leading-relaxed">${connStr}</div>
+            <button onclick="copyText('${esc(connStr)}')"
+                class="mt-2 w-full border-2 border-black py-2 text-[9px] font-black hover:bg-black hover:text-white transition-all">
+                КОПИРОВАТЬ СТРОКУ
+            </button>
+        </div>` : '';
+
+        const adminActiveBlock = isAdmin ? `
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            <div class="flex items-center justify-between mb-2">
+                <div>
+                    <div class="text-[10px] font-black">СТАТУС ПРОКСИ</div>
+                    <div class="text-[8px] text-gray-400 font-bold normal-case">Активировать или отключить прокси в системе</div>
+                </div>
+                <span id="adm-active-saving-${p.id}" class="text-[8px] font-black text-gray-400 hidden">СОХРАНЕНИЕ...</span>
+            </div>
+            <div class="flex gap-2">
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="adm_active_${p.id}" value="true"
+                        ${p.is_active ? 'checked' : ''}
+                        onchange="adminSetProxyActive(${p.id}, true)"
+                        class="sr-only peer">
+                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all
+                                peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">
+                        АКТИВЕН
+                    </div>
+                </label>
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="adm_active_${p.id}" value="false"
+                        ${!p.is_active ? 'checked' : ''}
+                        onchange="adminSetProxyActive(${p.id}, false)"
+                        class="sr-only peer">
+                    <div class="border-2 border-black py-2 text-center text-[9px] font-black transition-all
+                                peer-checked:bg-black peer-checked:text-white hover:bg-zinc-100 peer-checked:hover:bg-black">
+                        ОТКЛЮЧЕН
+                    </div>
+                </label>
+            </div>
+        </div>` : '';
+
+        container.innerHTML = `
+        <!-- Статус + хост -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="flex justify-between items-center">
+                <span class="text-[${isAdmin ? '11' : '10'}px] font-black">${p.host}:${p.port}</span>
+                <div class="flex items-center gap-1">
+                    <div class="w-2 h-2 ${p.is_active ? 'bg-green-500' : 'bg-zinc-300'} border border-black"></div>
+                    <span class="text-[9px] font-bold">${p.is_active ? 'АКТИВЕН' : 'НЕАКТИВЕН'}</span>
+                </div>
+            </div>
+            <div class="text-[8px] font-bold text-gray-400">${p.type} · ${p.ip_version || 'IPv4'} · ${(p.ip_type || '').replace(/_/g, ' ')}</div>
+            <div class="text-[9px] font-bold text-gray-500">
+                Страна прокси: ${p.checked_location || '—'}
+                (${p.location_match ? 'совпадает' : 'не совпадает'})
+            </div>
+        </div>
+
+        ${adminSystemBlock}
+
+        <!-- Учётные данные -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="text-[9px] font-black text-gray-400 mb-1">УЧЁТНЫЕ ДАННЫЕ</div>
+            <div class="flex justify-between items-center">
+                <span class="text-[9px] font-bold text-gray-400">ЛОГИН</span>
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px] font-black font-mono normal-case">${p.username || '—'}</span>
+                    ${p.username && !isAdmin ? `<button onclick="copyText('${esc(p.username)}')" class="text-[7px] border border-black px-1 hover:bg-black hover:text-white transition-all">КОПИР</button>` : ''}
+                </div>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-[9px] font-bold text-gray-400">ПАРОЛЬ</span>
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px] font-black font-mono normal-case" id="pwd-${p.id}">••••••••</span>
+                    <button onclick="togglePwd(${p.id}, '${esc(p.password)}')"
+                        class="text-[7px] border border-black px-1 hover:bg-black hover:text-white transition-all">ПОКАЗ</button>
+                    ${p.password && !isAdmin ? `<button onclick="copyText('${esc(p.password)}')" class="text-[7px] border border-black px-1 hover:bg-black hover:text-white transition-all">КОПИР</button>` : ''}
+                </div>
+            </div>
+        </div>
+
+        ${userConnBlock}
+
+        <!-- Временные метки -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-1">
+            <div class="text-[9px] font-black text-gray-400 mb-1">ВРЕМЕННЫЕ МЕТКИ</div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">КУПЛЕНО</span><span class="font-black">${bought}</span></div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">ИСТЕКАЕТ</span><span class="font-black">${expires}</span></div>
+            <div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">ПРОДЛЕНИЕ</span><span class="font-black">${renewal}</span></div>
+            ${!isAdmin ? `<div class="flex justify-between text-[9px]"><span class="font-bold text-gray-400">РЕГИОН ID</span><span class="font-black">${p.area_id || '—'}</span></div>` : ''}
+        </div>
+
+        <!-- Автопродление -->
+        <div class="border-2 border-black p-3 flex justify-between items-center">
+            <div>
+                <div class="text-[10px] font-black">АВТОПРОДЛЕНИЕ</div>
+                <div class="text-[8px] text-gray-400 font-bold normal-case">Автоматически продлевать по истечении</div>
+            </div>
+            <button id="auto-extend-btn-${p.id}"
+                onclick="_toggleAutoExtend(${p.id}, ${!p.auto_extend})"
+                class="border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${p.auto_extend ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}">
+                ${p.auto_extend ? 'ВКЛ' : 'ВЫКЛ'}
+            </button>
+        </div>
+
+        ${adminActiveBlock}
+
+        ${!isAdmin ? `<div class="text-[8px] font-bold text-gray-300 text-center">PROXY_ID: ${p.ipfoxy_proxy_id || '—'} · ORDER: ${p.ipfoxy_order_id || '—'}</div>` : ''}`;
+    }
+
+    function _truncate(str, max) {
+        const s = String(str || '-');
+        return s.length > max ? s.slice(0, max - 3) + '...' : s;
+    }
+
+    async function _toggleAutoExtend(proxyId, newValue) {
+        const btn = document.getElementById('auto-extend-btn-'+proxyId);
+        if (btn) {btn.disabled = true; btn.innerText = '...';}
+        try {
+            const res = await fetch(`/api/v1/user/proxies/${proxyId}/auto-extend`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({auto_extend: newValue})
+            });
+            if (!res.ok) throw new Error(res.status);
+            if (btn) {
+                btn.innerText = newValue ? 'ВКЛ' : 'ВЫКЛ';
+                btn.className = `border-2 border-black px-4 py-2 text-[9px] font-black transition-all ${newValue ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}`;
+                btn.onclick = () => _toggleAutoExtend(proxyId, !newValue);
+                btn.disabled = false;
+            }
+        } catch(e) {
+            window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ');
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    function adminToggleAutoExtend(proxyId, newValue) { _toggleAutoExtend(proxyId, newValue); }
+    function userToggleAutoExtend(proxyId, newValue)  { _toggleAutoExtend(proxyId, newValue); }
+
+    async function adminSetProxyActive(proxyId, newValue) {
+        const saving = document.getElementById('adm-active-saving-'+proxyId);
+        if (saving) saving.classList.remove('hidden');
+        try {
+            const res = await fetch(`/api/v1/admin/proxies/${proxyId}/active`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({ is_active: newValue })
+            }) ;
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Ошибка сохранения');
+            if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
+        } catch (e) {
+            window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ СТАТУСА');
+            const rollbackRadio = document.querySelector(`input[name="adm_active_${proxyId}"][value="${newValue ? 'false' : 'true'}"]`);
+            if (rollbackRadio) rollbackRadio.checked = true;
+        } finally {
+            if (saving) saving.classList.add('hidden');
+        }
+    }
+
+    function togglePwd(proxyId, pwd) {
+        const el = document.getElementById('pwd-' + proxyId);
+        if (el) el.innerText = el.innerText === '••••••••' ? (pwd || '') : '••••••••';
+    }
+</script>

@@ -135,7 +135,7 @@
 {% include "admin/modals/modal_add_user.html" %}
 {% include "admin/modals/modal_key_detail.html" %}
 {% include "admin/modals/modal_user_detail.html" %}
-{% include "admin/modals/modal_proxy_detail_admin.html" %}
+{% include "shared/modal_proxy_detail.html" %}
 
 <script>
 /* ════════ STATE ════════ */
@@ -599,8 +599,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('filter-proxies-search').oninput = () => resetAndReloadAdminProxies();
-    document.getElementById('filter-proxies-country').oninput = () => resetAndReloadAdminProxies();
-    document.getElementById('filter-proxies-expired').onchange = () => resetAndReloadAdminProxies();
 });
 
 function resetAndReloadAdminProxies() {

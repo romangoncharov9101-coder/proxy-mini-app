@@ -25,7 +25,7 @@ class UserListItem(BaseModel):
     api_key_name: Optional[str] = None
     created_at: datetime
 
-    class Confid:
+    class Config:
         from_attributes = True
 
 # ---- Whitelist--------------------------------------------------
@@ -109,7 +109,7 @@ class ProxyDetail(BaseModel):
     ip_type:           Optional[str]
     ip_version:        Optional[str]
     country_code:      Optional[str]
-    area_id:           str
+    area_id:           Optional[str]
     auto_extend:       bool
     is_active:         bool
     purchased_at:      datetime

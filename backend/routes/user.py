@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, asc
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, String
+from sqlalchemy import select, func
 from redis.asyncio import Redis
 
 from backend.database.database import AssyncSessionLocal, get_db
@@ -19,6 +19,11 @@ from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
 from backend.api_services.extend_service import extend_proxies_service
 from backend.utils.check_location import check_proxy_country_with_ip_api
+from backend.api_services.proxy_service import (
+    get_proxy_page,
+    get_proxy_detail_for_user,
+    set_auto_extend as proxy_set_auto_extend
+)
 
 router = APIRouter(prefix="/user", tags=["User"])
 logger = logging.getLogger("routes.user")
@@ -87,16 +92,23 @@ async def get_countries(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Пагинированный список регионов с кешированием в Redis.
+    Пагинированный список регионов.
+    Redis используется только как необязательный кеш.
+    Если Redis недоступен — данные берутся напрямую из БД.
     Если регионов нет в БД — запускает Celery задачу синхронизации.
     """
     logger.debug("[COUNTRIES] user_id=%s last_id=%s limit=%s", current_user.id, last_id, limit)
 
-    async with Redis.from_url(
-        settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2
-    ) as redis_client:
-        try:
-            countries = None
+    countries = None
+
+    # ── 1. Пытаемся прочитать из Redis, но не падаем при ошибке ───────────
+    try:
+        async with Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        ) as redis_client:
             cached_raw = await redis_client.get(CACHE_KEY_COUNTRIES)
 
             if cached_raw:
@@ -105,80 +117,125 @@ async def get_countries(
                     logger.debug("[COUNTRIES] из кеша: %d записей", len(countries))
                 except Exception as exc:
                     logger.warning("[COUNTRIES] ошибка парсинга кеша: %s", exc)
+                    countries = None
 
-            if not countries:
-                async with AssyncSessionLocal() as inner_db:
-                    stmt = select(Regions).where(Regions.status.is_(True)).order_by(asc(Regions.id))
-                    result = await inner_db.execute(stmt)
-                    all_regions = result.scalars().all()
+    except Exception as exc:
+        logger.warning("[COUNTRIES] Redis недоступен, читаем из БД: %s", exc)
+        countries = None
 
-                    if not all_regions:
-                        logger.info("[COUNTRIES] БД пуста — запускаем sync_regions_task")
-                        try:
-                            from backend.tasks.sync_tasks import sync_regions_task
-                            loop = asyncio.get_running_loop()
-                            await loop.run_in_executor(None, sync_regions_task.delay)
-                        except Exception as exc:
-                            logger.error("[COUNTRIES] ошибка запуска задачи: %s", exc)
-
-                    countries = [
-                        {
-                            "id":           r.id,
-                            "area_id":      r.area_id,
-                            "ip_type":      r.ip_type,
-                            "ip_version":   r.ip_version,
-                            "country":      r.country,
-                            "country_code": r.country_code,
-                            "retail_price": float(r.retail_price) if r.retail_price else 0.0,
-                        }
-                        for r in all_regions
-                    ]
-
-                    if countries:
-                        await redis_client.setex(CACHE_KEY_COUNTRIES, CACHE_EXPIRE, json.dumps(countries))
-
-            # ── Фильтрация по поиску ──────────────────────────────────────
-            if search:
-                search_val = search.lower().strip()
-                countries = [
-                    c for c in countries
-                    if search_val in c["country"].lower() or search_val in c["country_code"].lower()
-                ]
-                # При поиске cursor не используем: возвращаем все совпадения за один запрос
-                logger.debug("[COUNTRIES] поиск '%s' — найдено %d", search_val, len(countries))
-                return {"items": countries, "next_cursor": None, "has_more": False}
-
-            # ── Cursor пагинация (только без поиска) ─────────────────────
-            start_index = 0
-            if last_id is not None:
-                for i, c in enumerate(countries):
-                    if c["id"] == last_id:
-                        start_index = i + 1
-                        break
-                else:
-                    return {"items": [], "next_cursor": None, "has_more": False}
-
-            page = countries[start_index: start_index + limit]
-            has_more = (start_index + limit) < len(countries)
-            next_cursor = page[-1]["id"] if page and has_more else None
-
-            logger.debug(
-                "[COUNTRIES] страница: %d элем., has_more=%s, next_cursor=%s",
-                len(page), has_more, next_cursor,
+    # ── 2. Если кеша нет — читаем из БД ───────────────────────────────────
+    try:
+        if not countries:
+            stmt = (
+                select(Regions)
+                .where(Regions.status.is_(True))
+                .order_by(asc(Regions.id))
             )
-            return {"items": page, "next_cursor": next_cursor, "has_more": has_more}
+            result = await db.execute(stmt)
+            all_regions = result.scalars().all()
 
-        except Exception as exc:
-            logger.error("[COUNTRIES] критическая ошибка: %s", exc, exc_info=True)
-            return {"items": [], "next_cursor": None, "has_more": False}
+            if not all_regions:
+                logger.info("[COUNTRIES] БД пуста — запускаем sync_regions_task")
+                try:
+                    from backend.tasks.sync_tasks import sync_regions_task
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, sync_regions_task.delay)
+                except Exception as exc:
+                    logger.error("[COUNTRIES] ошибка запуска задачи: %s", exc)
+
+            countries = [
+                {
+                    "id":           r.id,
+                    "area_id":      r.area_id,
+                    "ip_type":      r.ip_type,
+                    "ip_version":   r.ip_version,
+                    "country":      r.country or "",
+                    "country_code": r.country_code or "",
+                    "retail_price": float(r.retail_price) if r.retail_price else 0.0,
+                }
+                for r in all_regions
+            ]
+
+            # ── 3. Пытаемся сохранить в Redis, но не падаем ───────────────
+            if countries:
+                try:
+                    async with Redis.from_url(
+                        settings.REDIS_URL,
+                        decode_responses=True,
+                        socket_connect_timeout=2,
+                        socket_timeout=2,
+                    ) as redis_client:
+                        await redis_client.setex(
+                            CACHE_KEY_COUNTRIES,
+                            CACHE_EXPIRE,
+                            json.dumps(countries),
+                        )
+                        logger.debug("[COUNTRIES] сохранено в кеш: %d записей", len(countries))
+                except Exception as exc:
+                    logger.warning("[COUNTRIES] не удалось сохранить кеш Redis: %s", exc)
+
+        # ── 4. Фильтрация по поиску ───────────────────────────────────────
+        if search:
+            search_val = search.lower().strip()
+            countries = [
+                c for c in countries
+                if search_val in (c["country"] or "").lower()
+                or search_val in (c["country_code"] or "").lower()
+            ]
+
+            logger.debug("[COUNTRIES] поиск '%s' — найдено %d", search_val, len(countries))
+
+            return {
+                "items": countries,
+                "next_cursor": None,
+                "has_more": False,
+            }
+
+        # ── 5. Cursor-пагинация ───────────────────────────────────────────
+        start_index = 0
+
+        if last_id is not None:
+            for i, c in enumerate(countries):
+                if c["id"] == last_id:
+                    start_index = i + 1
+                    break
+            else:
+                return {
+                    "items": [],
+                    "next_cursor": None,
+                    "has_more": False,
+                }
+
+        page = countries[start_index:start_index + limit]
+        has_more = (start_index + limit) < len(countries)
+        next_cursor = page[-1]["id"] if page and has_more else None
+
+        logger.debug(
+            "[COUNTRIES] страница: %d элем., has_more=%s, next_cursor=%s",
+            len(page),
+            has_more,
+            next_cursor,
+        )
+
+        return {
+            "items": page,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+        }
+
+    except Exception as exc:
+        logger.error("[COUNTRIES] критическая ошибка: %s", exc, exc_info=True)
+        return {
+            "items": [],
+            "next_cursor": None,
+            "has_more": False,
+        }
 
 @router.get("/proxies", response_model=schemas.ProxyPageResponse)
 async def get_my_proxies(
     last_id: Optional[int] = Query(None, description="cursor — id последнего полученного прокси"),
     limit:   int = Query(20, ge=1, le=50),
     db:      AsyncSession = Depends(get_db),
-    country_code: Optional[str] = Query(None, description="Фильтр по коду страны"),
-    expired:      Optional[bool]= Query(None, description="True - только истекшие, False - только активные"),
     search:       Optional[str] = Query(None, description="Поиск по юзеру, proxy_id, order_id"),
     current_user: User = Depends(get_current_user),
 ):
@@ -186,52 +243,12 @@ async def get_my_proxies(
     Возвращает прокси текущего пользователя, отсортированные по id desc (новые первые).
     Поддерживает cursor-пагинацию: передавай last_id для следующей страницы.
     """
-    now = datetime.now(timezone.utc)
-    stmt = (
-        select(Proxy)
-        .where(
-            Proxy.owner_id == current_user.id,
-            Proxy.is_active == True,
-            Proxy.expires_at > datetime.now(timezone.utc)
-            )
-        .order_by(Proxy.id.desc())
+    return await get_proxy_page(
+        db,
+        owner_id=current_user.id,
+        last_id=last_id,
+        search=search,
     )
-
-    if search:
-        search_filter = f"%{search}%"
-        stmt = stmt.where(
-            (Proxy.username.ilike(search_filter)) |
-            (func.cast(Proxy.ipfoxy_proxy_id, String).ilike(search_filter)) |
-            (func.cast(Proxy.ipfoxy_order_id, String).ilike(search_filter)) |
-            (Proxy.host.ilike(search_filter))
-        )
-
-    if country_code:
-        stmt = stmt.where(Proxy.country_code == country_code.upper())
-
-    if expired is True:
-        stmt = stmt.where(Proxy.expires_at < now)
-    elif expired is False:
-        stmt = stmt.where(Proxy.expires_at > now)
-
-    if last_id is not None:
-        stmt = stmt.where(Proxy.id < last_id)
-
-    stmt = stmt.limit(limit + 1)
-
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = items[-1].id if has_more and items else None
-
-    logger.debug("[PROXIES] user_id=%s — %d прокси, has_more=%s", current_user.id, len(items), has_more)
-    return {
-        "items":       items,
-        "next_cursor": next_cursor,
-        "has_more":    has_more,
-    }
 
 @router.get("/proxies/{proxy_id}", response_model=schemas.ProxyDetail)
 async def get_proxy_detail(
@@ -244,40 +261,7 @@ async def get_proxy_detail(
     включая логин/пароль и техническую информацию.
     """
     logger.debug("[PROXY_DETAIL] user_id=%s proxy_id=%s", current_user.id, proxy_id)
-
-    stmt = select(Proxy).where(
-        Proxy.id == proxy_id,
-        Proxy.owner_id == current_user.id,
-    )
-    result = await db.execute(stmt)
-    proxy = result.scalar_one_or_none()
-
-    if not proxy:
-        logger.warning("[PROXY_DETAIL] proxy_id=%s не найден для user_id=%s", proxy_id, current_user.id)
-        raise HTTPException(status_code=404, detail="Прокси не найден")
-
-    return schemas.ProxyDetail(
-        id=proxy.id,
-        ipfoxy_proxy_id=proxy.ipfoxy_proxy_id,
-        ipfoxy_order_id=proxy.ipfoxy_order_id,
-        host=proxy.host,
-        public_ip=proxy.public_ip,
-        port=proxy.port,
-        type=proxy.type,
-        username=proxy.username,
-        password=proxy.password,
-        ip_type=proxy.ip_type,
-        ip_version=proxy.ip_version,
-        country_code=proxy.country_code,
-        area_id=proxy.area_id,
-        auto_extend=proxy.auto_extend_local,
-        is_active=proxy.is_active,
-        purchased_at=proxy.purchased_at,
-        expires_at=proxy.expires_at,
-        renewal_at=proxy.renewal_at,
-        checked_location=proxy.checked_location,
-        location_match=proxy.location_match,
-    )
+    return await get_proxy_detail_for_user(db, proxy_id, current_user)
 
 @router.post("/calculate-price")
 async def calculate_order_price(
@@ -375,35 +359,31 @@ async def purchase_proxy_endpoint(
 
         expected_country_code = region.country_code
 
-        # order_id = await service.purchase_proxy(
-        #     area_id=request.area_id,
-        #     num=request.num,
-        #     days=request.days,
-        # )
-        # if not order_id:
-        #     raise ValueError('Не получен order_id от провайдера')
-        order_id = 'j1ojuc5'
+        order_id = await service.purchase_proxy(
+            area_id=request.area_id,
+            num=request.num,
+            days=request.days,
+        )
+        if not order_id:
+            raise ValueError('Не получен order_id от провайдера')
 
-        # Сразу обновляем баланс
-        # try:
-        #     user_api_key.balance = await service.get_balance()
-        # except Exception as bal_exc:
-        #     logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
-        #     user_api_key.balance = current_balance - total_cost
+        try:
+            user_api_key.balance = await service.get_balance()
+        except Exception as bal_exc:
+            logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
+            user_api_key.balance = current_balance - total_cost
 
-        # Сохраняем транзакцию и сразу отвечаем пользователю
-        # transaction = Transaction(
-        #     user_id=current_user.id,
-        #     order_id=str(order_id),
-        #     api_key_id=user_api_key.id,
-        #     type=TransactionType.purchase,
-        #     amount=total_cost,
-        #     description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
-        # )
-        # db.add(transaction)
-        # await db.commit()
+        transaction = Transaction(
+            user_id=current_user.id,
+            order_id=str(order_id),
+            api_key_id=user_api_key.id,
+            type=TransactionType.purchase,
+            amount=total_cost,
+            description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
+        )
+        db.add(transaction)
+        await db.commit()
 
-        # Запускаем фоновую активацию — не блокируем ответ пользователю
         asyncio.create_task(
             activate_proxies_background(
                 order_id=str(order_id),
@@ -428,7 +408,6 @@ async def purchase_proxy_endpoint(
         await db.rollback()
         logger.error('[PURCHASE] Критическая ошибка: %s', exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка: {exc}")
-
 
 async def activate_proxies_background(
     order_id: str,
@@ -458,7 +437,6 @@ async def activate_proxies_background(
                 logger.error("[ACTIVATE] order_id=%s — proxy_ids не найдены в order-info: %s", order_id, order_details)
                 return
 
-            # Ждём активации — до 5 минут, попытка каждые 15 сек
             proxies_data = []
             for attempt in range(1, 21):  # 20 попыток × 15 сек = 5 минут
                 await asyncio.sleep(15)
@@ -472,7 +450,6 @@ async def activate_proxies_background(
                 logger.error("[ACTIVATE] order_id=%s — прокси не появились за 5 минут!", order_id)
                 return
 
-            # Сохраняем прокси в БД
             added_count = 0
             for p in proxies_data:
                 try:
@@ -534,22 +511,7 @@ async def set_auto_extend(
     Администратор может менять любой прокси, пользователь — только свои.
     """
     logger.info("[AUTO_EXTEND] user_id=%s proxy_id=%s → %s", current_user.id, proxy_id, data.auto_extend)
-
-    if current_user.role == UserRole.admin:
-        stmt = select(Proxy).where(Proxy.id == proxy_id)
-    else:
-        stmt = select(Proxy).where(Proxy.id == proxy_id, Proxy.owner_id == current_user.id)
-
-    result = await db.execute(stmt)
-    proxy = result.scalar_one_or_none()
-
-    if not proxy:
-        raise HTTPException(status_code=404, detail="Прокси не найден")
-
-    proxy.auto_extend_local = data.auto_extend
-    await db.commit()
-    logger.info("[AUTO_EXTEND] proxy_id=%s auto_extend=%s — OK", proxy_id, data.auto_extend)
-    return {"proxy_id": proxy_id, "auto_extend": data.auto_extend}
+    return await proxy_set_auto_extend(db, proxy_id, data.auto_extend, current_user)
 
 @router.post('/proxies/extend')
 async def extend_proxies(

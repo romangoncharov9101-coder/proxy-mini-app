@@ -80,6 +80,7 @@ async def extend_proxies_service(
             proxy.expires_at = old_expires + timedelta(days=days)
         else:
             proxy.expires_at = now + timedelta(days=days)
+            proxy.renewal_at = now
 
     # Обновляем баланс: сначала пробуем получить реальный, иначе вычитаем
     try:
