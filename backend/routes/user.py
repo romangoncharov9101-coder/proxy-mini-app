@@ -354,20 +354,19 @@ async def purchase_proxy_endpoint(
 
         expected_country_code = region.country_code
 
-        # order_id = await service.purchase_proxy(
-        #     area_id=request.area_id,
-        #     num=request.num,
-        #     days=request.days,
-        # )
-        # if not order_id:
-        #     raise ValueError('Не получен order_id от провайдера')
+        order_id = await service.purchase_proxy(
+            area_id=request.area_id,
+            num=request.num,
+            days=request.days,
+        )
+        if not order_id:
+            raise ValueError('Не получен order_id от провайдера')
 
-        # try:
-        #     user_api_key.balance = await service.get_balance()
-        # except Exception as bal_exc:
-        #     logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
-        #     user_api_key.balance = current_balance - total_cost
-        order_id = 'j1oh9f0'
+        try:
+            user_api_key.balance = await service.get_balance()
+        except Exception as bal_exc:
+            logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
+            user_api_key.balance = current_balance - total_cost
 
         transaction = Transaction(
             user_id=current_user.id,
