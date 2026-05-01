@@ -1,0 +1,87 @@
+services:
+
+  # ─── FastAPI ────────────────────────────────────────────────────────────────
+  api:
+    build: .
+    container_name: proxy_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ROLE: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - proxy_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ─── Celery Worker ──────────────────────────────────────────────────────────
+  worker:
+    build: .
+    container_name: proxy_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ROLE: worker
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - proxy_net
+
+  # ─── Celery Beat (планировщик) ───────────────────────────────────────────────
+  beat:
+    build: .
+    container_name: proxy_beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ROLE: beat
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - proxy_net
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: proxy_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - proxy_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+  app_logs:
+
+networks:
+  proxy_net:
+    driver: bridge

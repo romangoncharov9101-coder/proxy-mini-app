@@ -1,5 +1,6 @@
 import logging
 import sys
+import os
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -7,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import user, pages, admin
 from backend.utils.config import settings
+
+LOG_DIR = os.getenv('LOG_DIR', 'logs')
+LOG_FILE = os.path.join(LOG_DIR, 'app.log')
 
 def setup_logging():
     log_level = logging.DEBUG if settings.ENVIRONMENT != 'production' else logging.INFO
@@ -19,9 +23,20 @@ def setup_logging():
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
+    os.makedirs(LOG_DIR, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=100 * 1024 * 1024,
+        backupCount=5,
+        encoding='utf-8'
+    )
+
+    file_handler.setFormatter(formatter)
+
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
     root_logger.addHandler(handler)
+    root_logger.addHandler(file_handler)
 
     logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
     logging.getLogger('sqlalchemy.engine').setLevel(
