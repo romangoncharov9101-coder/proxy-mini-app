@@ -1,4 +1,43 @@
 services:
+  # ─── Database (PostgreSQL) ──────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: proxy_db
+    restart: always
+    env_file: .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-proxyapp}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - proxy_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-proxyapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: proxy_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - proxy_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ─── FastAPI ────────────────────────────────────────────────────────────────
   api:
@@ -8,11 +47,14 @@ services:
     env_file: .env
     environment:
       APP_ROLE: api
+      # В .env убедись, что хост базы теперь 'db', а не 'localhost'
     ports:
-      - "8000:8000"
+      - "8008:8000"
     volumes:
       - app_logs:/app/logs
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -37,12 +79,14 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - proxy_net
 
-  # ─── Celery Beat (планировщик) ───────────────────────────────────────────────
+  # ─── Celery Beat ──────────────────────────────────────────────────────────
   beat:
     build: .
     container_name: proxy_beat
@@ -55,32 +99,17 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - proxy_net
 
-  # ─── Redis ──────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: proxy_redis
-    restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - proxy_net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 volumes:
   redis_data:
   app_logs:
+  postgres_data:
 
 networks:
   proxy_net:
