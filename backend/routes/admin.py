@@ -398,24 +398,27 @@ async def get_all_proxies(
     limit:        int           = Query(20, ge=1, le=50),
     key_id:       Optional[int] = Query(None, description='фильтр по api_key_id'),
     owner_id:     Optional[int] = Query(None, description='фильтр по user_id владельца'),
-    search:       Optional[str] = Query(None, description='Поиск по user, proxy_id, order_id'),
+    search:       Optional[str] = Query(None, description='Поиск по host, proxy_id, order_id, username/tg_id владельца, key_name/api_id ключа'),
+    proxy_status: Optional[str] = Query(None, description='active | inactive | expired | all'),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
     '''
     Все прокси системы с cursor-пагинацией.
-    Фильтры: по ключу, по владельцу.
+    Фильтры: по ключу, по владельцу, по статусу (active/inactive/expired/all).
+    Поиск: по host/proxy_id/order_id прокси, username/tg_id владельца, key_name/api_id ключа.
     Сортировка: новые первые.
     '''
-    logger.info(f'[ADMIN_PROXIES] last_id={last_id} limit={limit}')
+    logger.info(f'[ADMIN_PROXIES] last_id={last_id} limit={limit} status={proxy_status} search={search}')
     return await get_proxy_page(
         db,
         last_id=last_id,
         limit=limit,
         search=search,
         key_id=key_id,
-        filter_owner_id=owner_id
-    ) 
+        filter_owner_id=owner_id,
+        proxy_status=proxy_status if proxy_status != 'all' else None,
+    )
 
 @router.get('/proxies/{proxy_id}', response_model=schemas.ProxyDetail)
 async def get_proxy_detail_admin(
@@ -483,6 +486,33 @@ async def set_proxy_active_admin(
             status_code=500,
             detail='Ошибка при изменении статуса прокси',
         )
+
+@router.delete('/proxies/{proxy_id}', status_code=status.HTTP_204_NO_CONTENT)
+async def delete_proxy_admin(
+    proxy_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    '''
+    Удалить прокси из базы данных.
+    Используется администратором для очистки устаревших или некорректных записей.
+    '''
+    logger.info('[ADMIN_DELETE_PROXY] admin_id=%s — удаляет proxy_id=%s', admin.id, proxy_id)
+
+    result = await db.execute(select(Proxy).where(Proxy.id == proxy_id))
+    proxy = result.scalar_one_or_none()
+
+    if not proxy:
+        raise HTTPException(status_code=404, detail='Прокси не найден')
+
+    try:
+        await db.delete(proxy)
+        await db.commit()
+        logger.info('[ADMIN_DELETE_PROXY] proxy_id=%s удалён', proxy_id)
+    except Exception as exc:
+        await db.rollback()
+        logger.error('[ADMIN_DELETE_PROXY] ошибка proxy_id=%s: %s', proxy_id, exc)
+        raise HTTPException(status_code=500, detail='Ошибка при удалении прокси')
 
 @router.post('/proxies/extend')
 async def extend_proxies_admin(

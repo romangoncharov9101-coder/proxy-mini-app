@@ -65,8 +65,15 @@
     <!-- ══════════════════════════════════════════════════ -->
     <div id="admin-proxies-section" class="hidden p-4 space-y-3">
         <div class="grid grid-cols-2 gap-2">
-            <input type="text" id="filter-proxies-search" placeholder="USERNAME / PROXY_ID / ORDER_ID" 
+            <input type="text" id="filter-proxies-search" placeholder="HOST / PROXY_ID / ORDER_ID / USERNAME / TG_ID / ИМЯ КЛЮЧА"
                 class="col-span-2 border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
+            <select id="filter-proxies-status"
+                class="col-span-2 border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                <option value="all">ВСЕ ПРОКСИ</option>
+                <option value="active">ТОЛЬКО АКТИВНЫЕ</option>
+                <option value="inactive">ТОЛЬКО НЕАКТИВНЫЕ</option>
+                <option value="expired">ИСТЕКШИЕ</option>
+            </select>
         </div>
         <!-- Панель мультиселекта (скрыта, пока ничего не выбрано) -->
         <div id="admin-proxy-selection-bar"
@@ -355,6 +362,7 @@ async function loadNextAdminProxiesPage() {
     const statusEl = document.getElementById('admin-proxies-status');
 
     const search = document.getElementById('filter-proxies-search').value;
+    const proxyStatus = document.getElementById('filter-proxies-status')?.value || 'all';
 
     const status = document.getElementById('admin-proxies-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
@@ -362,7 +370,11 @@ async function loadNextAdminProxiesPage() {
     try {
         const params = new URLSearchParams({ limit: 20 });
         if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
+        // >>> ИЗМЕНЕНИЕ: одно поле — два параметра. search ищет по полям прокси,
+        //     owner_search — по владельцу/ключу. Отправляем одно и то же значение в оба.
         if (search) params.append('search', search);
+        if (search) params.append('owner_search', search);
+        if (proxyStatus && proxyStatus !== 'all') params.append('proxy_status', proxyStatus);
 
         const res = await fetch(`/api/v1/admin/proxies?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);
@@ -479,13 +491,50 @@ function buildAdminProxyCard(p) {
                     ${isExpired ? 'СРОК ИСТЕК' : `${expiresStr} (${daysLeft}д.)`}
                 </span>
             </div>
-            <button onclick="event.stopPropagation(); openExtendModal([${p.id}], '/api/v1/admin/proxies/extend')"
-                class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
-                + ПРОДЛИТЬ
-            </button>
+            <div class="flex gap-2">
+                <button onclick="event.stopPropagation(); openExtendModal([${p.id}], '/api/v1/admin/proxies/extend')"
+                    class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
+                    + ПРОДЛИТЬ
+                </button>
+                <button onclick="event.stopPropagation(); deleteAdminProxy(${p.id}, this)"
+                    class="bg-white border-2 border-red-500 text-red-500 px-3 py-1.5 text-[9px] font-black uppercase hover:bg-red-500 hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(220,38,38,1)] active:shadow-none active:translate-x-[1px]">
+                    ✕
+                </button>
+            </div>
         </div>
     `;
     return el;
+}
+
+async function deleteAdminProxy(proxyId, btn) {
+    const confirmed = await new Promise(resolve => {
+        window.Telegram?.WebApp?.showConfirm(
+            'УДАЛИТЬ ПРОКСИ #' + proxyId + '? Действие необратимо.',
+            resolve
+        );
+    });
+    if (!confirmed) return;
+
+    btn.disabled = true;
+    btn.innerText = '...';
+
+    try {
+        const res = await fetch(`/api/v1/admin/proxies/${proxyId}`, {
+            method: 'DELETE',
+            headers: { 'X-TG-Init-Data': TG_INIT },
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Ошибка удаления');
+        }
+        // Удаляем карточку из DOM
+        const card = btn.closest('.border-2');
+        if (card) card.remove();
+    } catch (e) {
+        window.Telegram?.WebApp?.showAlert('ОШИБКА: ' + e.message);
+        btn.disabled = false;
+        btn.innerText = '✕ УДАЛИТЬ';
+    }
 }
 
 function _onAdminCardBodyClick(proxyId, event) {
@@ -600,6 +649,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('filter-proxies-search').oninput = () => resetAndReloadAdminProxies();
+    document.getElementById('filter-proxies-status').onchange = () => resetAndReloadAdminProxies();
 });
 
 function resetAndReloadAdminProxies() {

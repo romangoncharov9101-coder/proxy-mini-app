@@ -3,7 +3,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select, func, String
+# >>> ИЗМЕНЕНИЕ: добавлен or_ для поиска по нескольким полям через OR
+from sqlalchemy import select, func, String, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models import Proxy, User, ApiKey, UserRole
@@ -18,20 +19,36 @@ def _build_proxy_list_stmt(
         limit: int = 20,
         search: Optional[str] = None,
         key_id: Optional[int] = None,
-        filter_owner_id: Optional[int] = None
+        filter_owner_id: Optional[int] = None,
+        proxy_status: Optional[str] = None,
 ):
     """
     Строит SQLAlchemy-statement для выборки прокси.
-    owner_id - ID текущего пользователя (для user-роута);
-               None означает "все прокси" (для admin-роута).
+    owner_id     - ID текущего пользователя (для user-роута);
+                   None означает "все прокси" (для admin-роута).
+    owner_search - поиск по username/first_name/telegram_id владельца
+                   ИЛИ key_name/api_id ключа (только для admin-роута).
     """
     now = datetime.now(timezone.utc)
     expiration_threshold = now - timedelta(days=5)
-    stmt = (
-        select(Proxy)
-        .where(Proxy.expires_at > expiration_threshold)
-        .order_by(Proxy.id.desc())
-    )
+
+    # >>> ИЗМЕНЕНИЕ: для admin-роута (owner_id is None) добавляем LEFT JOIN с User и ApiKey,
+    #     чтобы можно было фильтровать по полям владельца и ключа.
+    #     Для user-роута джойны не нужны — избегаем лишней нагрузки.
+    if owner_id is None:
+        stmt = (
+            select(Proxy)
+            .outerjoin(User, Proxy.owner_id == User.id)
+            .outerjoin(ApiKey, Proxy.api_key_id == ApiKey.id)
+            .where(Proxy.expires_at > expiration_threshold)
+            .order_by(Proxy.id.desc())
+        )
+    else:
+        stmt = (
+            select(Proxy)
+            .where(Proxy.expires_at > expiration_threshold)
+            .order_by(Proxy.id.desc())
+        )
 
     if owner_id is not None:
         stmt = stmt.where(
@@ -39,25 +56,50 @@ def _build_proxy_list_stmt(
             Proxy.is_active == True,
         )
 
+    # Единый поиск: одно значение ищется сразу по полям прокси, владельца и ключа через OR.
+    # owner_search == search (одно поле на фронте), оба параметра всегда одинаковы.
     if search:
-        search_filter = f'%{search}%'
-        stmt = stmt.where(
-            (Proxy.username.ilike(search_filter)) |
-            (func.cast(Proxy.ipfoxy_proxy_id, String).ilike(search_filter)) |
-            (func.cast(Proxy.ipfoxy_order_id, String).ilike(search_filter)) |
-            (Proxy.host.ilike(search_filter))
-        )
+        q = f'%{search}%'
+        conditions = [
+            # поля самого прокси
+            Proxy.username.ilike(q),
+            func.cast(Proxy.ipfoxy_proxy_id, String).ilike(q),
+            func.cast(Proxy.ipfoxy_order_id, String).ilike(q),
+            Proxy.host.ilike(q),
+        ]
+        # поля владельца и ключа — доступны только если был JOIN (admin-роут)
+        if owner_id is None:
+            conditions += [
+                User.username.ilike(q),
+                User.first_name.ilike(q),
+                ApiKey.key_name.ilike(q),
+                ApiKey.api_id.ilike(q),
+            ]
+            # точное совпадение по telegram_id если введено число
+            if search.strip().lstrip('-').isdigit():
+                conditions.append(User.telegram_id == int(search.strip()))
+        stmt = stmt.where(or_(*conditions))
 
     if last_id:
         stmt = stmt.where(Proxy.id < last_id)
-    
+
     if key_id:
         stmt = stmt.where(Proxy.api_key_id == key_id)
     if filter_owner_id:
         stmt = stmt.where(Proxy.owner_id == filter_owner_id)
 
+    # Фильтр по статусу (только для admin)
+    if proxy_status == 'active':
+        stmt = stmt.where(Proxy.is_active == True, Proxy.expires_at > now)
+    elif proxy_status == 'inactive':
+        stmt = stmt.where(Proxy.is_active == False)
+    elif proxy_status == 'expired':
+        stmt = stmt.where(Proxy.expires_at <= now)
+    # None / 'all' — без фильтра
+
     stmt = stmt.limit(limit + 1)
     return stmt
+
 
 async def get_proxy_page(
         db: AsyncSession,
@@ -67,7 +109,8 @@ async def get_proxy_page(
         limit: int = 20,
         search: Optional[str] = None,
         key_id: Optional[int] = None,
-        filter_owner_id: Optional[int] = None
+        filter_owner_id: Optional[int] = None,
+        proxy_status: Optional[str] = None,
 ) -> dict:
     """Возвращает страницу прокси с cursor-пагинацией."""
     stmt = _build_proxy_list_stmt(
@@ -76,17 +119,21 @@ async def get_proxy_page(
         limit=limit,
         search=search,
         key_id=key_id,
-        filter_owner_id=filter_owner_id
+        filter_owner_id=filter_owner_id,
+        proxy_status=proxy_status,
     )
 
     result = await db.execute(stmt)
-    rows = result.scalars().all()
+    # >>> ИЗМЕНЕНИЕ: unique() необходим при использовании outerjoin — убирает
+    #     дублирующиеся строки Proxy, которые могут появиться из-за JOIN.
+    rows = result.unique().scalars().all()
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor = items[-1].id if (has_more and items) else None
 
     logger.debug(f'[PROXY_PAGE] owner_id={owner_id} returned={len(items)} has_more={has_more}')
     return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
+
 
 def build_proxy_detail(
         proxy: Proxy,
@@ -110,7 +157,7 @@ def build_proxy_detail(
         ip_version=proxy.ip_version,
         country_code=proxy.country_code,
         area_id=proxy.area_id,
-        auto_extend=proxy.auto_extend_local,
+        auto_extend=bool(proxy.auto_extend_local or False),
         is_active=proxy.is_active,
         purchased_at=proxy.purchased_at,
         expires_at=proxy.expires_at,
@@ -121,6 +168,7 @@ def build_proxy_detail(
         owner_tg_id=owner_tg_id,
         api_key_name=api_key_name,
     )
+
 
 async def get_proxy_or_404(
         db: AsyncSession,
@@ -140,6 +188,7 @@ async def get_proxy_or_404(
         raise HTTPException(status_code=404, detail='Прокси не найден')
     return proxy
 
+
 async def get_proxy_detail_for_user(
         db: AsyncSession,
         proxy_id: int,
@@ -148,6 +197,7 @@ async def get_proxy_detail_for_user(
     """Детальная карточка прокси для обычного пользователя."""
     proxy = await get_proxy_or_404(db, proxy_id, owner_id=current_user.id)
     return build_proxy_detail(proxy)
+
 
 async def get_proxy_detail_for_admin(
         db: AsyncSession,
@@ -178,6 +228,7 @@ async def get_proxy_detail_for_admin(
         owner_tg_id=owner_tg_id,
         api_key_name=api_key_name,
     )
+
 
 async def set_auto_extend(
         db: AsyncSession,
