@@ -1,0 +1,92 @@
+<div id="auto-extend-confirm-overlay"
+     class="modal-overlay fixed inset-0 bg-black/80 z-[200] flex items-end justify-center hidden">
+    <div class="bg-white border-t-[3px] border-black w-full max-w-md shadow-[0_-8px_0px_0px_rgba(0,0,0,1)] flex flex-col">
+
+        <!-- Заголовок -->
+        <div class="border-b-[3px] border-black p-3 bg-black flex justify-between items-center shrink-0">
+            <h3 class="text-sm font-black uppercase tracking-tighter text-white">АВТОПРОДЛЕНИЕ</h3>
+            <button onclick="closeAutoExtendConfirmModal()"
+                    class="hover:bg-white hover:text-black border-2 border-white w-8 h-8 flex items-center justify-center transition-all text-white">
+                <span class="text-xl leading-none">×</span>
+            </button>
+        </div>
+
+        <!-- Тело -->
+        <div class="p-5 space-y-4">
+
+            <!-- Иконка + описание -->
+            <div class="flex items-start gap-3">
+                <div>
+                    <div class="text-[11px] font-black uppercase">Автоматическое продление активировано</div>
+                    <div class="text-[10px] text-gray-500 font-bold normal-case mt-1">
+                        Прокси будет продлеваться автоматически каждые 30 дней,
+                        если до истечения останется менее 7 дней.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Стоимость -->
+            <div class="border-[3px] border-black p-4 bg-zinc-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div class="text-[9px] font-black text-gray-400 uppercase mb-1">БУДЕТ СПИСЫВАТЬСЯ В МЕСЯЦ</div>
+                <div id="ae-confirm-price" class="text-3xl font-black tracking-tighter">— USD</div>
+                <div class="text-[9px] text-gray-400 font-bold mt-1 normal-case">
+                    за 30 дней · списание с баланса аккаунта
+                </div>
+            </div>
+
+            <!-- Предупреждение -->
+            <div class="border-2 border-yellow-400 bg-yellow-50 p-3 text-[9px] font-bold text-yellow-800 uppercase">
+                ⚠️ Убедитесь, что на балансе достаточно средств для автоматического списания.
+            </div>
+
+            <!-- Кнопки -->
+            <div class="grid grid-cols-2 gap-3 pt-1">
+                <button onclick="closeAutoExtendConfirmModal()"
+                        class="border-2 border-black py-3 text-[11px] font-black uppercase hover:bg-zinc-100 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">
+                    ОТМЕНА
+                </button>
+                <button id="ae-confirm-ok-btn"
+                        onclick="confirmAutoExtend()"
+                        class="bg-black text-white border-2 border-black py-3 text-[11px] font-black uppercase hover:bg-green-700 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1">
+                    ОК
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-black h-1 w-full shrink-0"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let _pendingProxyId = null;
+    window.openAutoExtendConfirmModal = function (proxyId, price) {
+        _pendingProxyId = proxyId;
+        const priceEl = document.getElementById('ae-confirm-price');
+        if (priceEl) {
+            priceEl.textContent = price != null ? `${Number(price).toFixed(2)} USD` : '— USD';
+        }
+        const btn = document.getElementById('ae-confirm-ok-btn');
+        if (btn) { btn.disabled = false; btn.textContent = 'ОК'; }
+        document.getElementById('auto-extend-confirm-overlay').classList.remove('hidden');
+    };
+
+    window.closeAutoExtendConfirmModal = function () {
+        document.getElementById('auto-extend-confirm-overlay').classList.add('hidden');
+        _pendingProxyId = null;
+    };
+
+    window.confirmAutoExtend = async function () {
+        if (_pendingProxyId === null) return;
+        const proxyId = _pendingProxyId;
+        const btn = document.getElementById('ae-confirm-ok-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+        window.closeAutoExtendConfirmModal();
+
+        if (typeof window._autoExtendConfirmedCallback === 'function') {
+            await window._autoExtendConfirmedCallback(proxyId);
+        }
+    };
+})();
+</script>

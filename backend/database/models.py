@@ -148,3 +148,14 @@ class Regions(Base):
 
     def __repr__(self):
         return f"<Regions area_id={self.area_id} country={self.country}>"
+    
+class Notifications(Base):
+    __tablename__ = 'notifications'
+
+    id = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    message_id = Column(BigInteger, nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f'<NotificationLog tg_id={self.telegram_id} msg_id={self.message_id}>'

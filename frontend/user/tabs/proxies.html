@@ -235,29 +235,56 @@ function copyText(text) {
     window.Telegram?.WebApp?.showAlert?.('Скопировано!');
 }
 
-async function setAutoExtend(proxyId, newValue) {
+async function _doSetAutoExtendProxiesTab(proxyId, newValue) {
     const saving = document.getElementById('ae-saving-' + proxyId);
     if (saving) saving.classList.remove('hidden');
-
     try {
         const res = await fetch(`${USER_PROXIES_API}/${proxyId}/auto-extend`, {
             method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-TG-Init-Data': TG_INIT
-            },
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
             body: JSON.stringify({ auto_extend: newValue })
         });
-
         if (!res.ok) throw new Error(res.status);
     } catch (e) {
         window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ');
-
         const opp = newValue ? 'false' : 'true';
         const r = document.querySelector(`input[name="ae_${proxyId}"][value="${opp}"]`);
         if (r) r.checked = true;
     } finally {
         if (saving) saving.classList.add('hidden');
+    }
+}
+
+async function setAutoExtend(proxyId, newValue) {
+    if (!newValue) {
+        // Выключение — без подтверждения
+        await _doSetAutoExtendProxiesTab(proxyId, false);
+        return;
+    }
+
+    // Включение — показываем модалку с суммой списания в месяц
+    let monthlyPrice = null;
+    try {
+        const priceRes = await fetch('/api/v1/user/calculate-price', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ order_type: 'RENEW', proxy_ids: [proxyId], days: 30 })
+        });
+        if (priceRes.ok) {
+            const pd = await priceRes.json();
+            monthlyPrice = pd.order_price ?? null;
+        }
+    } catch (_) {}
+
+    window._autoExtendConfirmedCallback = async (confirmedProxyId) => {
+        await _doSetAutoExtendProxiesTab(confirmedProxyId, true);
+        window._autoExtendConfirmedCallback = null;
+    };
+
+    if (typeof window.openAutoExtendConfirmModal === 'function') {
+        window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
+    } else {
+        await _doSetAutoExtendProxiesTab(proxyId, true);
     }
 }
 </script>

@@ -101,7 +101,6 @@ async def get_countries(
 
     countries = None
 
-    # ── 1. Пытаемся прочитать из Redis, но не падаем при ошибке ───────────
     try:
         async with Redis.from_url(
             settings.REDIS_URL,
@@ -123,7 +122,6 @@ async def get_countries(
         logger.warning("[COUNTRIES] Redis недоступен, читаем из БД: %s", exc)
         countries = None
 
-    # ── 2. Если кеша нет — читаем из БД ───────────────────────────────────
     try:
         if not countries:
             stmt = (
@@ -156,7 +154,6 @@ async def get_countries(
                 for r in all_regions
             ]
 
-            # ── 3. Пытаемся сохранить в Redis, но не падаем ───────────────
             if countries:
                 try:
                     async with Redis.from_url(
@@ -174,7 +171,6 @@ async def get_countries(
                 except Exception as exc:
                     logger.warning("[COUNTRIES] не удалось сохранить кеш Redis: %s", exc)
 
-        # ── 4. Фильтрация по поиску ───────────────────────────────────────
         if search:
             search_val = search.lower().strip()
             countries = [
@@ -191,7 +187,6 @@ async def get_countries(
                 "has_more": False,
             }
 
-        # ── 5. Cursor-пагинация ───────────────────────────────────────────
         start_index = 0
 
         if last_id is not None:

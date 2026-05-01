@@ -201,7 +201,11 @@
         return s.length > max ? s.slice(0, max - 3) + '...' : s;
     }
 
-    async function _toggleAutoExtend(proxyId, newValue) {
+    /**
+     * Реальное выполнение PATCH auto-extend (вызывается после подтверждения в модалке).
+     * Также вызывается напрямую при выключении автопродления (подтверждение не нужно).
+     */
+    async function _doSetAutoExtend(proxyId, newValue) {
         const btn = document.getElementById('auto-extend-btn-'+proxyId);
         if (btn) {btn.disabled = true; btn.innerText = '...';}
         try {
@@ -219,7 +223,52 @@
             }
         } catch(e) {
             window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ');
-            if (btn) btn.disabled = false;
+            if (btn) {btn.disabled = false; btn.innerText = newValue ? 'ВЫКЛ' : 'ВКЛ';}
+        }
+    }
+
+    /**
+     * Точка входа при клике на кнопку автопродления.
+     * - Если включаем (newValue=true) — показываем модальное окно с ценой.
+     * - Если выключаем (newValue=false) — выполняем сразу без подтверждения.
+     */
+    async function _toggleAutoExtend(proxyId, newValue) {
+        if (!newValue) {
+            // Выключение — без подтверждения
+            await _doSetAutoExtend(proxyId, false);
+            return;
+        }
+
+        // Включение — показываем модалку с ценой
+        // Получаем цену продления (30 дней) через API
+        let monthlyPrice = null;
+        try {
+            const priceRes = await fetch('/api/v1/user/calculate-price', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({
+                    order_type: 'EXTEND',
+                    proxy_ids: [proxyId],
+                    days: 30
+                })
+            });
+            if (priceRes.ok) {
+                const priceData = await priceRes.json();
+                monthlyPrice = priceData.order_price ?? null;
+            }
+        } catch (_) { /* не критично — покажем без цены */ }
+
+        // Регистрируем callback, который сработает после нажатия ОК
+        window._autoExtendConfirmedCallback = async (confirmedProxyId) => {
+            await _doSetAutoExtend(confirmedProxyId, true);
+            window._autoExtendConfirmedCallback = null;
+        };
+
+        if (typeof window.openAutoExtendConfirmModal === 'function') {
+            window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
+        } else {
+            // Fallback: модалка не подключена — выполняем сразу
+            await _doSetAutoExtend(proxyId, true);
         }
     }
 

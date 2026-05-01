@@ -8,6 +8,7 @@ celery_app = Celery(
     backend=settings.REDIS_URL,
     include=[
         'backend.tasks.sync_tasks',
+        'backend.tasks.notification_tasks',
     ],
 )
 
@@ -35,5 +36,13 @@ celery_app.conf.beat_schedule = {
     'sync_balances_every_15min': {
         'task': 'backend.tasks.sync_tasks.sync_balances_task',
         'schedule': crontab(minute='*/15'),
+    },
+    'daily_notify_expiring_proxies': {
+        'task': 'backend.tasks.notification_tasks.notify_expiring_proxies_task',
+        'schedule': crontab(hour=9, minute=0),
+    },
+    'daily_auto_renew_proxies': {
+        'task': 'backend.tasks.notification_tasks.auto_renew_proxies_task',
+        'schedule': crontab(hour=3, minute=0),
     },
 }
