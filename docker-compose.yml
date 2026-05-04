@@ -1,5 +1,5 @@
 services:
-  # ─── Database (PostgreSQL) ──────────────────────────────────────────────────
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
   db:
     image: postgres:15-alpine
     container_name: proxy_db
@@ -21,12 +21,14 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Redis ──────────────────────────────────────────────────────────────────
+  # ─── Redis ───────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: proxy_redis
     restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
+    # ФИКС: явно указываем bind на все интерфейсы — без этого Redis
+    # внутри Docker может слушать только 127.0.0.1 и быть недоступен другим контейнерам.
+    command: redis-server --bind 0.0.0.0 --save 60 1 --loglevel warning
     ports:
       - "6379:6379"
     volumes:
@@ -34,12 +36,12 @@ services:
     networks:
       - proxy_net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ─── FastAPI ────────────────────────────────────────────────────────────────
+  # ─── FastAPI ─────────────────────────────────────────────────────────────────
   api:
     build: .
     container_name: proxy_api
@@ -47,11 +49,11 @@ services:
     env_file: .env
     environment:
       APP_ROLE: api
-      # В .env убедись, что хост базы теперь 'db', а не 'localhost'
+      LOG_DIR: /app/logs
     ports:
       - "8008:8000"
     volumes:
-      - app_logs:/app/logs
+      - ./logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
@@ -66,7 +68,7 @@ services:
       retries: 5
       start_period: 20s
 
-  # ─── Celery Worker ──────────────────────────────────────────────────────────
+  # ─── Celery Worker ───────────────────────────────────────────────────────────
   worker:
     build: .
     container_name: proxy_worker
@@ -74,11 +76,14 @@ services:
     env_file: .env
     environment:
       APP_ROLE: worker
+      LOG_DIR: /app/logs
     volumes:
-      - app_logs:/app/logs
+      - ./logs:/app/logs
+    # ФИКС: worker и beat зависят только от db и redis — не от api.
+    # Зависимость от api создавала цепочку: api ждёт 20s start_period,
+    # потом ещё 30s healthcheck * 5 retries = воркер стартовал через ~3 минуты.
+    # За это время beat уже мог отправить задачи в очередь без активного воркера.
     depends_on:
-      api:
-        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -86,7 +91,7 @@ services:
     networks:
       - proxy_net
 
-  # ─── Celery Beat ──────────────────────────────────────────────────────────
+  # ─── Celery Beat ─────────────────────────────────────────────────────────────
   beat:
     build: .
     container_name: proxy_beat
@@ -94,11 +99,11 @@ services:
     env_file: .env
     environment:
       APP_ROLE: beat
+      LOG_DIR: /app/logs
     volumes:
-      - app_logs:/app/logs
+      - ./logs:/app/logs
+    # ФИКС: аналогично worker — зависим только от db и redis.
     depends_on:
-      api:
-        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -108,7 +113,6 @@ services:
 
 volumes:
   redis_data:
-  app_logs:
   postgres_data:
 
 networks:

@@ -20,19 +20,7 @@ DELETE_NOTIFICATION_AFTER_HOURS = 48
 EDIT_THRESHOLD_HOURS = 24
 
 def run_async(coro):
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    if loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return loop.run_until_complete(coro)
+    return asyncio.run(coro)
     
 async def _tg_send_message(telegram_id: int, text: str) -> int | None:
     url = f'https://api.telegram.org/bot{settings.BOT_TOKEN}/sendMessage'
@@ -75,7 +63,7 @@ async def _tg_edit_message(telegram_id: int, message_id: int, text: str) -> bool
     return False
 
 async def _tg_delete_message(telegram_id: int, message_id: int) -> bool:
-    url = f'https://api.telegra.org/bot{settings.BOT_TOKEN}/deleteMessage'
+    url = f'https://api.telegram.org/bot{settings.BOT_TOKEN}/deleteMessage'
     payload = {'chat_id': telegram_id, 'message_id': message_id}
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -124,7 +112,7 @@ def _build_notification_text(proxies: list[Proxy], is_admin: bool = False) -> st
     return '\n'.join(lines)
 
 @shared_task(
-    name='backend.tasks.notification_tasks.notify_expiring_proxies_task',
+    name='backend.tasks.notifications_tasks.notify_expiring_proxies_task',
     bind=True, max_retries=2, default_retry_delay=60
 )
 def notify_expiring_proxies_task(self):
@@ -133,12 +121,12 @@ def notify_expiring_proxies_task(self):
     Проходит по всем пользователям, у которых есть прокси требующие внимания,
     и отправляет / редактирует Telegram-уведомление.
     """
-    logger.info('[NOTIFY] Зада запущена')
+    logger.info('[NOTIFY] Задача запущена')
     async def logic():
         async with AssyncSessionLocal() as db:
             now = datetime.now(timezone.utc)
             expiry_warn_threshold = now + timedelta(days=WARN_BEFORE_DAYS)
-            expired_remind_threshold = now = timedelta(days=REMIND_AFTER_EXPIRY_DAYS)
+            expired_remind_threshold = now - timedelta(days=REMIND_AFTER_EXPIRY_DAYS)
 
             stmt_overdue = select(Proxy).where(
                 Proxy.is_active.is_(True),
@@ -240,7 +228,7 @@ def notify_expiring_proxies_task(self):
         raise self.retry(exc=exc)
     
 @shared_task(
-    name='backend.tasks.notification_tasks.auto_renew_proxies_task',
+    name='backend.tasks.notifications_tasks.auto_renew_proxies_task',
     bind=True, max_retries=2, default_retry_delay=60
 )
 def auto_renew_proxies_task(self):
@@ -321,3 +309,4 @@ def auto_renew_proxies_task(self):
     except Exception as exc:
         logger.error(f'[AUTO_RENEW] Критическая ошибка: {exc}', exc_info=True)
         raise self.retry(exc=exc)
+

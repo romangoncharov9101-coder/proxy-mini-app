@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     REDIS_URL: str
     ENCRYPTION_KEY: str
     POSTGRES_PASSWORD: str
+    LOG_DIR: str
+    APP_TIMEZONE: str
 
     model_config = SettingsConfigDict(env_file=".env")
 

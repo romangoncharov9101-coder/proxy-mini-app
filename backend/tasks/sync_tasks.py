@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import logging.handlers
+import os
 from celery import shared_task
 from sqlalchemy import select
 from decimal import Decimal, InvalidOperation
@@ -10,29 +12,23 @@ from backend.api_services.ipfoxy import IPFoxyService
 
 logger = logging.getLogger('celery.tasks')
 
+
+# БАГ-ФИКС: asyncio.get_event_loop() устарел в Python 3.10+ и вызывает
+# DeprecationWarning / RuntimeError в воркере. Заменяем на asyncio.run(),
+# который всегда создаёт свежий event loop — именно то, что нужно в Celery.
 def run_async(coro):
     """Запускает async coroutine в sync-контексте Celery воркера."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    return asyncio.run(coro)
 
-    if loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return loop.run_until_complete(coro)
 
 def _to_decimal(value):
-    if value is None or value == "":
-        return Decimal("0.00")
+    if value is None or value == '':
+        return Decimal('0.00')
     try:
         return Decimal(str(value).strip().replace(',', '.'))
     except (ValueError, InvalidOperation):
-        return Decimal("0.00")
+        return Decimal('0.00')
+
 
 @shared_task(name='backend.tasks.sync_tasks.sync_regions_task', bind=True, max_retries=3, default_retry_delay=60)
 def sync_regions_task(self):
@@ -46,6 +42,7 @@ def sync_regions_task(self):
       - Регионы одинаковы для всех аккаунтов IPFoxy.
     """
     logger.info('[SYNC_REGIONS] Задача запущена')
+
     async def logic():
         async with AssyncSessionLocal() as db:
             stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey.id)
@@ -53,7 +50,8 @@ def sync_regions_task(self):
             all_keys: list[ApiKey] = result.scalars().all()
 
             if not all_keys:
-                logger.eeror('[SYNC_REGIONS] В БД нет активных API ключей - задача отменена')
+                # БАГ-ФИКС: опечатка logger.eeror → logger.error
+                logger.error('[SYNC_REGIONS] В БД нет активных API ключей — задача отменена')
                 return {'status': 'error', 'reason': 'no_active_keys'}
 
             logger.info(f'[SYNC_REGIONS] Найдено {len(all_keys)} активных ключей')
@@ -71,12 +69,19 @@ def sync_regions_task(self):
                         logger.warning(f'[SYNC_REGIONS] Ключ id={key_obj.api_id} не прошёл check_connection — пропускаем')
                 except Exception as exc:
                     logger.error(f'[SYNC_REGIONS] Ошибка проверки ключа id={key_obj.api_id}: {exc}')
-            
-            regions_data = await service.get_regions()
+
+            # БАГ-ФИКС: после цикла использовался `service` (последний в цикле),
+            # а не `working_service`. Если ни один ключ не прошёл проверку — падало
+            # с AttributeError. Теперь явная проверка на None.
+            if working_service is None:
+                logger.error('[SYNC_REGIONS] Ни один ключ не прошёл проверку соединения — отмена')
+                return {'status': 'error', 'reason': 'no_working_key'}
+
+            regions_data = await working_service.get_regions()
             if not regions_data:
-                logger.warning("[SYNC_REGIONS] API вернул пустой список регионов")
-                return {"status": "warning", "reason": "empty_regions"}
-            
+                logger.warning('[SYNC_REGIONS] API вернул пустой список регионов')
+                return {'status': 'warning', 'reason': 'empty_regions'}
+
             for reg in regions_data:
                 raw_area_id = reg.get('id')
                 area_id_str = str(raw_area_id)
@@ -102,18 +107,18 @@ def sync_regions_task(self):
                     db_reg.status = raw_status.lower() == 'true'
                 else:
                     db_reg.status = bool(raw_status)
-            
+
             await db.commit()
-            logger.info("[SYNC_REGIONS] Завершено")
-            return {
-                'status': 'ok',
-                'total': len(regions_data)
-            }
+            logger.info('[SYNC_REGIONS] Завершено')
+            return {'status': 'ok', 'total': len(regions_data)}
+
     try:
         return run_async(logic())
     except Exception as exc:
+        logger.error(f'[SYNC_REGIONS] Неперехваченная ошибка: {exc}')
         raise self.retry(exc=exc)
-    
+
+
 @shared_task(name='backend.tasks.sync_tasks.sync_balances_task', bind=True, max_retries=2, default_retry_delay=30)
 def sync_balances_task(self):
     """
@@ -122,33 +127,32 @@ def sync_balances_task(self):
     Важно: каждый ключ работает со своим аккаунтом IPFoxy — у каждого свой баланс.
     Ошибка одного ключа не останавливает обновление остальных.
     """
-    logger.info("[SYNC_BALANCES] Задача запущена")
+    logger.info('[SYNC_BALANCES] Задача запущена')
 
     async def logic():
         async with AssyncSessionLocal() as db:
-            stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey)
+            stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey.id)
             result = await db.execute(stmt)
             all_keys: list[ApiKey] = result.scalars().all()
 
             if not all_keys:
-                logger.warning("[SYNC_BALANCES] Нет активных ключей")
-                return {"status": "warning", "reason": "no_active_keys"}
-            
+                logger.warning('[SYNC_BALANCES] Нет активных ключей')
+                return {'status': 'warning', 'reason': 'no_active_keys'}
+
             for key_obj in all_keys:
                 try:
                     service = IPFoxyService.get_service_by_key_obj(key_obj)
                     new_balance = await service.get_balance()
-
-                    old_balance = key_obj.balance
                     key_obj.balance = new_balance
                     key_obj.last_checked = func.now()
-
                 except Exception as exc:
-                    logger.error(f'[SYNC_BALANCES] key_id={key_obj.api_id} name={key_obj.key_name} - Ошибка: {exc}')
-            
+                    logger.error(f'[SYNC_BALANCES] key_id={key_obj.api_id} name={key_obj.key_name} — Ошибка: {exc}')
+
             await db.commit()
             return {'status': 'ok'}
+
     try:
         return run_async(logic())
     except Exception as exc:
+        logger.error(f'[SYNC_BALANCES] Неперехваченная ошибка: {exc}')
         raise self.retry(exc=exc)

@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
+    redis-tools \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -16,8 +18,6 @@ COPY alembic/ ./alembic/
 
 COPY backend/ ./backend
 COPY frontend/ ./frontend
-
-RUN mkdir -p /app/logs
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

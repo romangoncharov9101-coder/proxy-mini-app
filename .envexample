@@ -6,5 +6,8 @@ IPFOXY_API_BASE="https://apis.ipfoxy.com"
 ALLOWED_ORIGINS=["*"]
 ENVIRONMENT="production"
 REDIS_URL = "redis://127.0.0.1:6379/0"
+POSTGRES_PASSWORD=password
+LOG_DIR=/app/logs
+APP_TIMEZONE=Europe/Kiev
 
 ENCRYPTION_KEY="gV4xzTpwd0aFtcO8VUtHmq_ibknuAvhu5xqobtZNjwI="

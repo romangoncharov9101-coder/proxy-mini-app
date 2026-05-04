@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import sys
 import os
 from fastapi import FastAPI, Request
@@ -9,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.routes import user, pages, admin
 from backend.utils.config import settings
 
-LOG_DIR = os.getenv('LOG_DIR', 'logs')
+# Абсолютный путь по умолчанию — чтобы не зависеть от CWD при запуске воркера/uvicorn.
+# В docker-compose передаётся через LOG_DIR=/app/logs.
+LOG_DIR = os.getenv('LOG_DIR', '/app/logs')
 LOG_FILE = os.path.join(LOG_DIR, 'app.log')
 
 def setup_logging():
