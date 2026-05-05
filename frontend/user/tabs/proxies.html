@@ -257,12 +257,9 @@ async function _doSetAutoExtendProxiesTab(proxyId, newValue) {
 
 async function setAutoExtend(proxyId, newValue) {
     if (!newValue) {
-        // Выключение — без подтверждения
         await _doSetAutoExtendProxiesTab(proxyId, false);
         return;
     }
-
-    // Включение — показываем модалку с суммой списания в месяц
     let monthlyPrice = null;
     try {
         const priceRes = await fetch('/api/v1/user/calculate-price', {

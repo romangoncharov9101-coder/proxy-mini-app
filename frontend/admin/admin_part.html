@@ -1,7 +1,7 @@
 <div id="admin-layout" class="hidden">
 
     <!-- ══ ГЛАВНЫЙ НАВ ══ -->
-    <nav id="admin-nav" class="sticky top-0 z-[999] flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
+    <nav id="admin-nav" class="sticky top-0 z-[40] flex border-b-2 border-black bg-white h-12 text-[10px] font-bold uppercase shrink-0">
         <div onclick="switchAdminTab('keys',this)"
              class="flex-1 flex items-center justify-center border-r border-black bg-black text-white cursor-pointer">АПИ</div>
         <div onclick="switchAdminTab('proxies',this)"
@@ -187,9 +187,6 @@ function switchKeysSubTab(tab) {
 
     if (!isKeys) {
         const container = document.getElementById('admin-users-list');
-        // БАГ-ФИКС: проверяем что контейнер пуст — иначе при повторном
-        // открытии вкладки (например после закрытия модала ключа) записи дублировались,
-        // т.к. nextCursor===null && hasMore===true выполнялось снова.
         const isEmpty = !container || container.children.length === 0;
         if (isEmpty && adminUsersState.hasMore) {
             loadNextUsersPage();
@@ -197,9 +194,6 @@ function switchKeysSubTab(tab) {
     }
 }
 
-/* ════════════════════════════════════════
-   API КЛЮЧИ
-════════════════════════════════════════ */
 async function loadApiKeys() {
     const container = document.getElementById('keys-list');
 
@@ -278,9 +272,6 @@ function updateTxKeySelect(keys) {
     select.value = currentVal;
 }
 
-/* ════════════════════════════════════════
-   ПОЛЬЗОВАТЕЛИ
-════════════════════════════════════════ */
 async function loadNextUsersPage() {
     if (!adminUsersState.hasMore || adminUsersState.isLoading) return;
 
@@ -370,8 +361,6 @@ async function loadNextAdminProxiesPage() {
     try {
         const params = new URLSearchParams({ limit: 20 });
         if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
-        // >>> ИЗМЕНЕНИЕ: одно поле — два параметра. search ищет по полям прокси,
-        //     owner_search — по владельцу/ключу. Отправляем одно и то же значение в оба.
         if (search) params.append('search', search);
         if (search) params.append('owner_search', search);
         if (proxyStatus && proxyStatus !== 'all') params.append('proxy_status', proxyStatus);
@@ -440,7 +429,6 @@ function _updateAdminSelectionBar() {
     }
 }
 
-/* Карточка прокси у админа — тот же визуал что и у пользователя */
 function buildAdminProxyCard(p) {
     const now      = new Date();
     const expires  = p.expires_at ? new Date(p.expires_at) : null;
@@ -527,7 +515,6 @@ async function deleteAdminProxy(proxyId, btn) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || 'Ошибка удаления');
         }
-        // Удаляем карточку из DOM
         const card = btn.closest('.border-2');
         if (card) card.remove();
     } catch (e) {
@@ -629,9 +616,6 @@ function clearTxFilters() {
     resetAndLoadTx();
 }
 
-/* ════════════════════════════════════════
-   ВСПОМОГАТЕЛЬНЫЕ (ADMIN)
-════════════════════════════════════════ */
 let filterTimeout;
 function debounceFilter(callback) {
     clearTimeout(filterTimeout);

@@ -51,7 +51,6 @@
         openProxyDetailModal(proxyId, { isAdmin: true, apiBase: '/api/v1/admin/proxies' });
     }
 
-    // ─── Рендер ───────────────────────────────────────────────────────────────
     function _renderProxyDetail(container, p, isAdmin) {
         const expires = p.expires_at ? new Date(p.expires_at).toLocaleString('ru-RU') : '-';
         const bought = p.purchased_at ? new Date(p.purchased_at).toLocaleString('ru-RU') : '-';
@@ -201,10 +200,6 @@
         return s.length > max ? s.slice(0, max - 3) + '...' : s;
     }
 
-    /**
-     * Реальное выполнение PATCH auto-extend (вызывается после подтверждения в модалке).
-     * Также вызывается напрямую при выключении автопродления (подтверждение не нужно).
-     */
     async function _doSetAutoExtend(proxyId, newValue) {
         const btn = document.getElementById('auto-extend-btn-'+proxyId);
         if (btn) {btn.disabled = true; btn.innerText = '...';}
@@ -227,20 +222,12 @@
         }
     }
 
-    /**
-     * Точка входа при клике на кнопку автопродления.
-     * - Если включаем (newValue=true) — показываем модальное окно с ценой.
-     * - Если выключаем (newValue=false) — выполняем сразу без подтверждения.
-     */
     async function _toggleAutoExtend(proxyId, newValue) {
         if (!newValue) {
-            // Выключение — без подтверждения
             await _doSetAutoExtend(proxyId, false);
             return;
         }
 
-        // Включение — показываем модалку с ценой
-        // Получаем цену продления (30 дней) через API
         let monthlyPrice = null;
         try {
             const priceRes = await fetch('/api/v1/user/calculate-price', {
@@ -256,9 +243,8 @@
                 const priceData = await priceRes.json();
                 monthlyPrice = priceData.order_price ?? null;
             }
-        } catch (_) { /* не критично — покажем без цены */ }
+        } catch (_) { }
 
-        // Регистрируем callback, который сработает после нажатия ОК
         window._autoExtendConfirmedCallback = async (confirmedProxyId) => {
             await _doSetAutoExtend(confirmedProxyId, true);
             window._autoExtendConfirmedCallback = null;
@@ -267,7 +253,6 @@
         if (typeof window.openAutoExtendConfirmModal === 'function') {
             window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
         } else {
-            // Fallback: модалка не подключена — выполняем сразу
             await _doSetAutoExtend(proxyId, true);
         }
     }

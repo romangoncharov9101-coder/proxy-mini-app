@@ -423,7 +423,6 @@ async def activate_proxies_background(
                 return
             service, _ = service_data
 
-            # Получаем proxy_ids из order-info
             order_details = await service.get_order_information(order_id)
             order_data_ids = order_details.get('data', {}).get('proxy_ids', [])
             proxy_ids_str = ",".join(str(pid) for pid in order_data_ids) if order_data_ids else None
@@ -433,7 +432,7 @@ async def activate_proxies_background(
                 return
 
             proxies_data = []
-            for attempt in range(1, 21):  # 20 попыток × 15 сек = 5 минут
+            for attempt in range(1, 21):
                 await asyncio.sleep(15)
                 proxies_data = await service.get_proxies_list(1, 50, proxy_ids_str)
                 if proxies_data:

@@ -24,7 +24,6 @@ async def extend_proxies_service(
 
     logger.info(f'[EXTEND] user_id={current_user.id} proxy_ids={proxy_ids} days={days}')
 
-    # Строим запрос в зависимости от роли
     if current_user.role == UserRole.admin:
         stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
     else:
@@ -33,7 +32,6 @@ async def extend_proxies_service(
             Proxy.owner_id == current_user.id,
         )
 
-    # Выполняем запрос ВСЕГДА (не только для обычных юзеров)
     result = await db.execute(stmt)
     proxies = result.scalars().all()
 
@@ -82,7 +80,6 @@ async def extend_proxies_service(
             proxy.expires_at = now + timedelta(days=days)
             proxy.renewal_at = now
 
-    # Обновляем баланс: сначала пробуем получить реальный, иначе вычитаем
     try:
         new_balance = await service.get_balance()
         user_api_key.balance = new_balance
@@ -90,7 +87,6 @@ async def extend_proxies_service(
         logger.warning(f'[EXTEND] не удалось обновить баланс: {exc}')
         user_api_key.balance = current_balance - total_cost
 
-    # Безопасно извлекаем order_id из ответа renew_proxy
     renew_order_id = None
     if isinstance(order_id, dict):
         renew_order_id = order_id.get('data', {}).get('order_id')

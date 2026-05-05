@@ -46,7 +46,6 @@ document.getElementById('add-key-form').addEventListener('submit', async (e) => 
     const errEl = document.getElementById('add-key-error');
     const submitBtn = e.target.querySelector('button[type="submit"]');
     
-    // Сброс состояния
     errEl.classList.add('hidden');
     errEl.innerText = '';
 
@@ -56,7 +55,6 @@ document.getElementById('add-key-form').addEventListener('submit', async (e) => 
         key:      document.getElementById('api_key_val').value.trim()
     };
 
-    // --- ФРОНТЕНД ВАЛИДАЦИЯ (согласно модели SQLAlchemy) ---
     if (payload.key_name.length < 3 || payload.key_name.length > 255) {
         return showError('Название должно быть от 3 до 255 символов');
     }
@@ -74,7 +72,6 @@ document.getElementById('add-key-form').addEventListener('submit', async (e) => 
     }
 
     try {
-        // Визуальный фидбек
         submitBtn.disabled = true;
         submitBtn.innerText = 'СОХРАНЕНИЕ...';
 
@@ -93,7 +90,6 @@ document.getElementById('add-key-form').addEventListener('submit', async (e) => 
             throw new Error(data.detail || 'Ошибка сервера');
         }
 
-        /* Привязка пользователя */
         const tgIdRaw = document.getElementById('key_assign_tg_id').value.trim();
         if (tgIdRaw) {
             await assignKeyByTgId(data.id, parseInt(tgIdRaw));
@@ -111,7 +107,6 @@ document.getElementById('add-key-form').addEventListener('submit', async (e) => 
     }
 });
 
-/* Вспомогательная: найти user.id по telegram_id и назначить ключ */
 async function assignKeyByTgId(keyId, tgId) {
     try {
         const res = await fetch(`/api/v1/admin/users?limit=100`, { headers: { 'X-TG-Init-Data': TG_INIT } });

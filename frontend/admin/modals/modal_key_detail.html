@@ -11,7 +11,6 @@
     </div>
 </div>
 
-<!-- МОДАЛ: Редактировать ключ -->
 <div id="edit-modal-overlay" class="modal-overlay hidden fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
     <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
         <div class="bg-black text-white p-4 flex justify-between items-center">
@@ -64,7 +63,6 @@ function renderKeyDetail(container, k) {
     const nameStr = String(k.key_name || '—');
     const displayName = nameStr.length > 20 ? nameStr.slice(0, 17) + '...' : nameStr;
     
-    // Безопасная обработка API_ID
     const idStr = String(k.api_id || '—');
     const displayId = idStr.length > 20 ? idStr.slice(0, 17) + '...' : idStr;
     

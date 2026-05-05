@@ -12,10 +12,6 @@ from backend.api_services.ipfoxy import IPFoxyService
 
 logger = logging.getLogger('celery.tasks')
 
-
-# БАГ-ФИКС: asyncio.get_event_loop() устарел в Python 3.10+ и вызывает
-# DeprecationWarning / RuntimeError в воркере. Заменяем на asyncio.run(),
-# который всегда создаёт свежий event loop — именно то, что нужно в Celery.
 def run_async(coro):
     """Запускает async coroutine в sync-контексте Celery воркера."""
     return asyncio.run(coro)
@@ -50,7 +46,6 @@ def sync_regions_task(self):
             all_keys: list[ApiKey] = result.scalars().all()
 
             if not all_keys:
-                # БАГ-ФИКС: опечатка logger.eeror → logger.error
                 logger.error('[SYNC_REGIONS] В БД нет активных API ключей — задача отменена')
                 return {'status': 'error', 'reason': 'no_active_keys'}
 
@@ -70,9 +65,6 @@ def sync_regions_task(self):
                 except Exception as exc:
                     logger.error(f'[SYNC_REGIONS] Ошибка проверки ключа id={key_obj.api_id}: {exc}')
 
-            # БАГ-ФИКС: после цикла использовался `service` (последний в цикле),
-            # а не `working_service`. Если ни один ключ не прошёл проверку — падало
-            # с AttributeError. Теперь явная проверка на None.
             if working_service is None:
                 logger.error('[SYNC_REGIONS] Ни один ключ не прошёл проверку соединения — отмена')
                 return {'status': 'error', 'reason': 'no_working_key'}

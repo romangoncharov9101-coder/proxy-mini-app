@@ -35,7 +35,6 @@
 <script>
 async function openAddUserModal() {
     document.getElementById('add-user-error').classList.add('hidden');
-    /* Загружаем ключи для выпадающего списка */
     const sel = document.getElementById('new_user_key_id');
     sel.innerHTML = '<option value="">— не назначать —</option>';
     try {
@@ -69,11 +68,9 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
         const wlData = await wlRes.json();
         if (!wlRes.ok) throw new Error(wlData.detail || 'Ошибка добавления в whitelist');
 
-        /* 2. Если выбран ключ — назначаем */
         if (keyId) await assignKeyByTgId(parseInt(keyId), tgId);
 
         smartCloseModal('add-user-modal');
-        /* Сбрасываем список */
         adminUsersState = { nextCursor: null, hasMore: true, isLoading: false };
         document.getElementById('admin-users-list').innerHTML = '';
         loadNextUsersPage();

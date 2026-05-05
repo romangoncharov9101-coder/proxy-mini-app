@@ -41,12 +41,10 @@ async function openUserDetail(userId) {
     modal.classList.remove('hidden');
 
     try {
-        /* Параллельно загружаем прокси и транзакции пользователя */
         const [proxiesRes, txRes] = await Promise.all([
             fetch(`/api/v1/admin/proxies?owner_id=${userId}&limit=5`, { headers: { 'X-TG-Init-Data': TG_INIT } }),
             fetch(`/api/v1/admin/transactions?user_id=${userId}&limit=5`, { headers: { 'X-TG-Init-Data': TG_INIT } })
         ]);
-        /* Берём данные пользователя из уже загруженного списка (или делаем отдельный запрос) */
         const usersRes = await fetch(`/api/v1/admin/users?limit=100`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         const allUsers = await usersRes.json();
         const user = allUsers.find(u => u.id === userId);

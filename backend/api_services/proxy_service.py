@@ -3,7 +3,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
-# >>> ИЗМЕНЕНИЕ: добавлен or_ для поиска по нескольким полям через OR
 from sqlalchemy import select, func, String, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,9 +31,6 @@ def _build_proxy_list_stmt(
     now = datetime.now(timezone.utc)
     expiration_threshold = now - timedelta(days=5)
 
-    # >>> ИЗМЕНЕНИЕ: для admin-роута (owner_id is None) добавляем LEFT JOIN с User и ApiKey,
-    #     чтобы можно было фильтровать по полям владельца и ключа.
-    #     Для user-роута джойны не нужны — избегаем лишней нагрузки.
     if owner_id is None:
         stmt = (
             select(Proxy)
@@ -56,18 +52,14 @@ def _build_proxy_list_stmt(
             Proxy.is_active == True,
         )
 
-    # Единый поиск: одно значение ищется сразу по полям прокси, владельца и ключа через OR.
-    # owner_search == search (одно поле на фронте), оба параметра всегда одинаковы.
     if search:
         q = f'%{search}%'
         conditions = [
-            # поля самого прокси
             Proxy.username.ilike(q),
             func.cast(Proxy.ipfoxy_proxy_id, String).ilike(q),
             func.cast(Proxy.ipfoxy_order_id, String).ilike(q),
             Proxy.host.ilike(q),
         ]
-        # поля владельца и ключа — доступны только если был JOIN (admin-роут)
         if owner_id is None:
             conditions += [
                 User.username.ilike(q),
@@ -75,7 +67,6 @@ def _build_proxy_list_stmt(
                 ApiKey.key_name.ilike(q),
                 ApiKey.api_id.ilike(q),
             ]
-            # точное совпадение по telegram_id если введено число
             if search.strip().lstrip('-').isdigit():
                 conditions.append(User.telegram_id == int(search.strip()))
         stmt = stmt.where(or_(*conditions))
@@ -88,14 +79,12 @@ def _build_proxy_list_stmt(
     if filter_owner_id:
         stmt = stmt.where(Proxy.owner_id == filter_owner_id)
 
-    # Фильтр по статусу (только для admin)
     if proxy_status == 'active':
         stmt = stmt.where(Proxy.is_active == True, Proxy.expires_at > now)
     elif proxy_status == 'inactive':
         stmt = stmt.where(Proxy.is_active == False)
     elif proxy_status == 'expired':
         stmt = stmt.where(Proxy.expires_at <= now)
-    # None / 'all' — без фильтра
 
     stmt = stmt.limit(limit + 1)
     return stmt
@@ -124,8 +113,6 @@ async def get_proxy_page(
     )
 
     result = await db.execute(stmt)
-    # >>> ИЗМЕНЕНИЕ: unique() необходим при использовании outerjoin — убирает
-    #     дублирующиеся строки Proxy, которые могут появиться из-за JOIN.
     rows = result.unique().scalars().all()
     has_more = len(rows) > limit
     items = rows[:limit]
