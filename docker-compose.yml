@@ -9,12 +9,16 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB:-proxyapp}
-    ports:
-      - "5432:5432"
+    # Порт закрыт наружу — БД доступна только внутри Docker-сети
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - proxy_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-proxyapp}"]
       interval: 10s
@@ -26,15 +30,17 @@ services:
     image: redis:7-alpine
     container_name: proxy_redis
     restart: unless-stopped
-    # ФИКС: явно указываем bind на все интерфейсы — без этого Redis
-    # внутри Docker может слушать только 127.0.0.1 и быть недоступен другим контейнерам.
     command: redis-server --bind 0.0.0.0 --save 60 1 --loglevel warning
-    ports:
-      - "6379:6379"
+    # Порт закрыт наружу — Redis доступен только внутри Docker-сети
     volumes:
       - redis_data:/data
     networks:
       - proxy_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
       interval: 10s
@@ -61,6 +67,11 @@ services:
         condition: service_healthy
     networks:
       - proxy_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
@@ -79,10 +90,6 @@ services:
       LOG_DIR: /app/logs
     volumes:
       - ./logs:/app/logs
-    # ФИКС: worker и beat зависят только от db и redis — не от api.
-    # Зависимость от api создавала цепочку: api ждёт 20s start_period,
-    # потом ещё 30s healthcheck * 5 retries = воркер стартовал через ~3 минуты.
-    # За это время beat уже мог отправить задачи в очередь без активного воркера.
     depends_on:
       db:
         condition: service_healthy
@@ -90,6 +97,11 @@ services:
         condition: service_healthy
     networks:
       - proxy_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ─── Celery Beat ─────────────────────────────────────────────────────────────
   beat:
@@ -102,7 +114,6 @@ services:
       LOG_DIR: /app/logs
     volumes:
       - ./logs:/app/logs
-    # ФИКС: аналогично worker — зависим только от db и redis.
     depends_on:
       db:
         condition: service_healthy
@@ -110,6 +121,11 @@ services:
         condition: service_healthy
     networks:
       - proxy_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
 volumes:
   redis_data:

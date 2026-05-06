@@ -20,7 +20,7 @@ def _setup_celery_logging():
     handlers = [
         logging.StreamHandler(sys.stdout),
         logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=50 * 1024 * 1024, backupCount=3, encoding='utf-8'
+            LOG_FILE, maxBytes=20 * 1024 * 1024, backupCount=3, encoding='utf-8'
         ),
     ]
     root = logging.getLogger()

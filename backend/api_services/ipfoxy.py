@@ -54,7 +54,6 @@ class IPFoxyService:
             logger.warning(f'[KEY_LOOKUP] user_id={user.id}, - ключ api_key_id={user.api_key_id} ключ не найден или не активен.')
             return None
         
-        logger.debug(f'[KEY_LOOKUP] user_id={user.id} - используется ключ id={api_key.id}, name={api_key.key_name}')
         return cls._from_key_obj(api_key), api_key
     
     @classmethod
@@ -71,7 +70,6 @@ class IPFoxyService:
             logger.warning(f'[KEY_LOOKUP] key_id={api_id} - не найден или не активен')
             return None
         
-        logger.debug(f'[KEY_LOOKUP] key_id={api_id}, name={api_key.key_name} - OK')
         return cls._from_key_obj(api_key), api_key
     
     @classmethod
@@ -149,7 +147,6 @@ class IPFoxyService:
         """ Получить баланс аккаунта IPFoxy"""
         data = await self._make_request('GET', '/ip/open-api/account-info')
         balance = data.get('data', {}).get('total_balance', '0.00')
-        logger.info(f'[BALANCE] key_name={self.key_name} - {Decimal(str(balance))} USD')
         return Decimal(str(balance))
     
     async def get_proxies_list(self, page: int = 1, page_size: int = 20, proxy_ids = None) -> list[dict]:
@@ -163,7 +160,6 @@ class IPFoxyService:
             params={'page': page, 'page_size': page_size, 'proxy_ids': proxy_ids}
         )
         proxies_list = data.get('data', {}).get('list', [])
-        logger.info(f'[PROXY_LIST] key_name={self.key_name} — {len(proxies_list)} прокси (стр. {page})')
         return proxies_list
     
     async def renew_proxy(self, proxy_ids: str, days: int = 30) -> dict:

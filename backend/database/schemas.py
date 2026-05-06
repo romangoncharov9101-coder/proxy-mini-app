@@ -164,12 +164,12 @@ class OrderPriceRequest(BaseModel):
     days: int
     area_id: int | None = None
     proxy_ids: list[int] | None = None
-    num: int | None = None
+    num: int | None = Field(None, ge=1, le=20)
 
 class ProxyPurchaseRequest(BaseModel):
     area_id: int
     days: int
-    num: int = Field(..., ge=1, le=100)
+    num: int = Field(..., ge=1, le=20)
 
 # ---- Transactions -----------------------------------------------
 class TransactionItem(BaseModel):

@@ -75,7 +75,6 @@ async def create_api_key(
     admin: User = Depends(require_admin),
 ):
     '''Создать новый API ключ. Секрет шифруется через Fernet перед сохранением.'''
-    logger.info(f'[ADMIN_KEYS] admin_id={admin.telegram_id} — создаёт ключ name={key_data.key_name} api_id={key_data.api_id}')
     new_key = ApiKey(
         key=encrypt_data(key_data.key),
         api_id=key_data.api_id,
@@ -103,7 +102,6 @@ async def create_api_key(
     try:
         await db.commit()
         await db.refresh(new_key)
-        logger.info(f'[ADMIN_KEYS] ключ id={new_key.api_id} создан')
         return new_key
     except Exception as exc:
         await db.rollback()
@@ -236,7 +234,6 @@ async def get_users(
     Поиск: по TG ID, username и first_name.
     Фильтрация: По API ключам.
     '''
-    logger.info('[ADMIN_USERS] admin_id=%s last_id=%s limit=%s key_id=%s', admin.id, last_id, limit, key_id)
 
     stmt = select(User, ApiKey.key_name).outerjoin(ApiKey, User.api_key_id == ApiKey.id)
 
@@ -276,7 +273,6 @@ async def get_users(
             created_at=user_obj.created_at,
         ))
 
-    logger.debug(f'[ADMIN_USERS] возвращено {len(items)} пользователей, has_more={has_more}')
     return items
 
 @router.post('/whitelist', response_model=schemas.WhitelistResponse, status_code=status.HTTP_201_CREATED)
@@ -289,11 +285,6 @@ async def add_to_whitelist(
     Добавить telegram_id в whitelist → открыть доступ к приложению.
     Если уже есть — возвращает 409.
     '''
-    logger.info(
-        '[ADMIN_WL] admin_id=%s — добавляет tg_id=%s role=%s',
-        admin.id, data.telegram_id, data.role,
-    )
-
     exists_stmt = select(Whitelist).where(Whitelist.telegram_id == data.telegram_id)
     exists_res = await db.execute(exists_stmt)
     if exists_res.scalar_one_or_none():
@@ -308,7 +299,6 @@ async def add_to_whitelist(
     await db.commit()
     await db.refresh(entry)
 
-    logger.info('[ADMIN_WL] tg_id=%s добавлен в whitelist (id=%s)', data.telegram_id, entry.id)
     return entry
 
 @router.delete('/users/{user_id}/block', status_code=status.HTTP_204_NO_CONTENT)
@@ -317,8 +307,6 @@ async def block_user(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    logger.info('[ADMIN_BLOCK] admin_id=%s — блокирует и удаляет user_id=%s', admin.id, user_id)
-
     user_result = await db.execute(select(User).where(User.id == user_id))
     target_user = user_result.scalar_one_or_none()
     
@@ -340,7 +328,6 @@ async def block_user(
     await db.delete(target_user)
     await db.commit()
     
-    logger.info('[ADMIN_BLOCK] user_id=%s полностью удален из всех таблиц', user_id)
     return None
 
 @router.post('/users/assign-key', status_code=status.HTTP_200_OK)
@@ -353,11 +340,6 @@ async def assign_key_to_users(
     Назначить API ключ одному или нескольким пользователям.
     Принимает список user_id (internal id, не telegram_id).
     '''
-    logger.info(
-        '[ADMIN_ASSIGN] admin_id=%s — назначает key_id=%s пользователям %s',
-        admin.id, data.key_id, data.user_ids,
-    )
-
     key_result = await db.execute(
         select(ApiKey).where(ApiKey.id == data.key_id, ApiKey.is_active.is_(True))
     )
@@ -374,10 +356,6 @@ async def assign_key_to_users(
     for u in target_users:
         old_key = u.api_key_id
         u.api_key_id = data.key_id
-        logger.debug(
-            '[ADMIN_ASSIGN] user_id=%s: key %s → %s',
-            u.id, old_key, data.key_id,
-        )
 
     await db.commit()
 
@@ -409,7 +387,6 @@ async def get_all_proxies(
     Поиск: по host/proxy_id/order_id прокси, username/tg_id владельца, key_name/api_id ключа.
     Сортировка: новые первые.
     '''
-    logger.info(f'[ADMIN_PROXIES] last_id={last_id} limit={limit} status={proxy_status} search={search}')
     return await get_proxy_page(
         db,
         last_id=last_id,
@@ -430,8 +407,6 @@ async def get_proxy_detail_admin(
     Детальная карточка прокси для администратора.
     Включает данные о владельце и о ключе.
     '''
-    logger.info(f'[ADMIN_PROXY_DETAIL] admin_id={admin.id} proxy_id={proxy_id}')
-
     return await get_proxy_detail_for_admin(db, proxy_id)
 
 @router.patch('/proxies/{proxy_id}/active')
@@ -445,11 +420,6 @@ async def set_proxy_active_admin(
     Активировать / деактивирвоать выбранный прокси.
     Доступно только администратору при просмотре карточки с детальной информацией о прокси.
     """
-    logger.info(
-        '[ADMIN_PROXY_ACTIVE] admin_id=%s proxy_id=%s → %s',
-        admin.id, proxy_id, data.is_active,
-    )
-
     result = await db.execute(
         select(Proxy).where(Proxy.id == proxy_id)
     )
@@ -463,11 +433,6 @@ async def set_proxy_active_admin(
     try:
         await db.commit()
         await db.refresh(proxy)
-
-        logger.info(
-            '[ADMIN_PROXY_ACTIVE] proxy_id=%s is_active=%s — OK',
-            proxy.id, proxy.is_active,
-        )
 
         return {
             'status': 'success',
@@ -497,8 +462,6 @@ async def delete_proxy_admin(
     Удалить прокси из базы данных.
     Используется администратором для очистки устаревших или некорректных записей.
     '''
-    logger.info('[ADMIN_DELETE_PROXY] admin_id=%s — удаляет proxy_id=%s', admin.id, proxy_id)
-
     result = await db.execute(select(Proxy).where(Proxy.id == proxy_id))
     proxy = result.scalar_one_or_none()
 
@@ -543,10 +506,6 @@ async def get_all_transactions(
     Включает telegram_id пользователя и название ключа.
     Сортировка: новые первые.
     '''
-    logger.info(
-        '[ADMIN_TX] admin_id=%s last_id=%s limit=%s key_id=%s user_id=%s',
-        admin.id, last_id, limit, key_id, user_id_filter,
-    )
     UserAlias = aliased(User)
 
     stmt = (

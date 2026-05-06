@@ -28,9 +28,9 @@
                     <div class="w-2 h-2 bg-black"></div>
                     <span class="text-[10px] font-black uppercase">КОЛИЧЕСТВО ЕДИНИЦ (1–100):</span>
                 </div>
-                <input type="number" id="proxy-quantity" min="1" max="100" value="1"
+                <input type="number" id="proxy-quantity" min="1" max="20" value="1"
                        class="border-[3px] border-black p-3 font-black text-lg focus:outline-none focus:bg-zinc-100 w-full">
-                <p id="quantity-error" class="hidden text-[9px] text-white bg-red-600 p-1 font-bold text-center uppercase">ДИАПАЗОН: 1–100</p>
+                <p id="quantity-error" class="hidden text-[9px] text-white bg-red-600 p-1 font-bold text-center uppercase">ДИАПАЗОН: 1–20</p>
                 <button onclick="confirmOptions()" class="w-full bg-black text-white py-4 text-sm font-black hover:bg-white hover:text-black border-2 border-black transition-all uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
                     ПОДТВЕРДИТЬ
                 </button>
@@ -118,7 +118,7 @@ function goBackToQuantity() {
 async function confirmOptions() {
     const qty = parseInt(document.getElementById('proxy-quantity').value);
     const errEl = document.getElementById('quantity-error');
-    if (isNaN(qty) || qty < 1 || qty > 100) {
+    if (isNaN(qty) || qty < 1 || qty > 20) {
         errEl.classList.remove('hidden'); return;
     }
     errEl.classList.add('hidden');

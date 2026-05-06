@@ -27,7 +27,7 @@ def setup_logging():
     os.makedirs(LOG_DIR, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
         LOG_FILE,
-        maxBytes=100 * 1024 * 1024,
+        maxBytes=20 * 1024 * 1024,
         backupCount=5,
         encoding='utf-8'
     )
