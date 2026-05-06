@@ -123,25 +123,31 @@ def sync_balances_task(self):
 
     async def logic():
         async with AssyncSessionLocal() as db:
-            stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey.id)
-            result = await db.execute(stmt)
-            all_keys: list[ApiKey] = result.scalars().all()
+            try:
+                stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey.id)
+                result = await db.execute(stmt)
+                all_keys: list[ApiKey] = result.scalars().all()
 
-            if not all_keys:
-                logger.warning('[SYNC_BALANCES] Нет активных ключей')
-                return {'status': 'warning', 'reason': 'no_active_keys'}
+                if not all_keys:
+                    logger.warning('[SYNC_BALANCES] Нет активных ключей')
+                    return {'status': 'warning', 'reason': 'no_active_keys'}
 
-            for key_obj in all_keys:
-                try:
-                    service = IPFoxyService.get_service_by_key_obj(key_obj)
-                    new_balance = await service.get_balance()
-                    key_obj.balance = new_balance
-                    key_obj.last_checked = func.now()
-                except Exception as exc:
-                    logger.error(f'[SYNC_BALANCES] key_id={key_obj.api_id} name={key_obj.key_name} — Ошибка: {exc}')
+                for key_obj in all_keys:
+                    try:
+                        service = IPFoxyService.get_service_by_key_obj(key_obj)
+                        new_balance = await service.get_balance()
+                        key_obj.balance = new_balance
+                        key_obj.last_checked = func.now()
+                    except Exception as exc:
+                        logger.error(f'[SYNC_BALANCES] key_id={key_obj.api_id} name={key_obj.key_name} — Ошибка: {exc}')
 
-            await db.commit()
-            return {'status': 'ok'}
+                await db.commit()
+                return {'status': 'ok'}
+            except Exception as e:
+                await db.rollback()
+                logger.error(f'[SYNC_BALANCES] Ошибка БД: {e}')
+            finally:
+                await db.close()
 
     try:
         return run_async(logic())

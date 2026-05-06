@@ -31,7 +31,6 @@ services:
     container_name: proxy_redis
     restart: unless-stopped
     command: redis-server --bind 0.0.0.0 --save 60 1 --loglevel warning
-    # Порт закрыт наружу — Redis доступен только внутри Docker-сети
     volumes:
       - redis_data:/data
     networks:

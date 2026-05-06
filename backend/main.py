@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import user, pages, admin
 from backend.utils.config import settings
+from backend.utils.celery_core import celery_app
 
 LOG_DIR = os.getenv('LOG_DIR', '/app/logs')
 LOG_FILE = os.path.join(LOG_DIR, 'app.log')
