@@ -344,8 +344,8 @@ async def purchase_proxy_endpoint(
         )
         current_balance = user_api_key.balance or Decimal("0.00")
 
-        if current_balance < total_cost:
-            raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD. Необходимо: {total_cost}')
+        # if current_balance < total_cost:
+        #     raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD. Необходимо: {total_cost}')
 
         region_res = await db.execute(select(Regions).where(Regions.area_id == str(request.area_id)))
         region = region_res.scalar_one_or_none()
@@ -354,13 +354,14 @@ async def purchase_proxy_endpoint(
 
         expected_country_code = region.country_code
 
-        order_id = await service.purchase_proxy(
-            area_id=request.area_id,
-            num=request.num,
-            days=request.days,
-        )
-        if not order_id:
-            raise ValueError('Не получен order_id от провайдера')
+        order_id = 'j1ojuc5'
+        # order_id = await service.purchase_proxy(
+        #     area_id=request.area_id,
+        #     num=request.num,
+        #     days=request.days,
+        # )
+        # if not order_id:
+        #     raise ValueError('Не получен order_id от провайдера')
 
         try:
             user_api_key.balance = await service.get_balance()
