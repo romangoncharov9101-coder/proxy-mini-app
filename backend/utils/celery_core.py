@@ -4,6 +4,7 @@ import os
 import sys
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 from celery.signals import worker_ready
 from backend.utils.config import settings
 
@@ -20,7 +21,7 @@ def _setup_celery_logging():
     handlers = [
         logging.StreamHandler(sys.stdout),
         logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=20 * 1024 * 1024, backupCount=3, encoding='utf-8'
+            LOG_FILE, maxBytes=20 * 1024 * 1024, backupCount=3, encoding='utf-8'  # 20 МБ × 3 = 60 МБ max
         ),
     ]
     root = logging.getLogger()
@@ -32,6 +33,12 @@ def _setup_celery_logging():
 _setup_celery_logging()
 logger = logging.getLogger('celery.core')
 logger.info(f'[CELERY] Подключение к Redis: {settings.REDIS_URL}')
+
+@worker_process_init.connect
+def reinit_db_on_worker_start(sender, **kwargs):
+    from backend.database.database import reinit_db_for_worker
+    reinit_db_for_worker()
+    logger.info('[CELERY] БД движок пересоздан для воркер-процесса')
 
 celery_app = Celery(
     'proxy_tasks',
