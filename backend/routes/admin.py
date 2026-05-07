@@ -235,7 +235,10 @@ async def get_users(
     Фильтрация: По API ключам.
     '''
 
-    stmt = select(User, ApiKey.key_name).outerjoin(ApiKey, User.api_key_id == ApiKey.id)
+    stmt = (
+        select(User, ApiKey.key_name)
+        .join(Whitelist, User.telegram_id == Whitelist.telegram_id)
+        .outerjoin(ApiKey, User.api_key_id == ApiKey.id))
 
     if last_id:
         stmt = stmt.where(User.id > last_id)
