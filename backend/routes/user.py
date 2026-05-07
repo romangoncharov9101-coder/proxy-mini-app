@@ -240,7 +240,7 @@ async def get_my_proxies(
     """
     return await get_proxy_page(
         db,
-        owner_id=current_user.id,
+        key_id=current_user.api_key_id,
         last_id=last_id,
         search=search,
     )
