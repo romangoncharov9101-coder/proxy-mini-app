@@ -325,7 +325,7 @@ async def block_user(
         await db.delete(wl_entry)
         logger.info('Запись удалена из whitelist для tg_id=%s', target_user.telegram_id)
 
-    await db.delete(target_user)
+    # await db.delete(target_user)
     await db.commit()
     
     return None
