@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 
 from backend.database.database import AssyncSessionLocal, get_db
 from backend.database import schemas
-from backend.database.models import User, Regions, Proxy, Transaction, TransactionType, ApiKey, UserRole
+from backend.database.models import User, Regions, Proxy, Transaction, TransactionType, ApiKey, UserRole, AppSettings
 from backend.utils.security import get_current_user
 from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
@@ -170,6 +170,19 @@ async def get_countries(
                         logger.debug("[COUNTRIES] сохранено в кеш: %d записей", len(countries))
                 except Exception as exc:
                     logger.warning("[COUNTRIES] не удалось сохранить кеш Redis: %s", exc)
+
+        # Фильтрация по allowed_area_ids (только для пользователей, не для администраторов)
+        if current_user.role.value != 'admin':
+            try:
+                settings_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+                app_settings = settings_res.scalar_one_or_none()
+                if app_settings and app_settings.allowed_area_ids:
+                    allowed_ids = set(x.strip() for x in app_settings.allowed_area_ids.split(',') if x.strip())
+                    if allowed_ids:
+                        countries = [c for c in countries if str(c["area_id"]) in allowed_ids]
+                        logger.debug("[COUNTRIES] фильтр area_ids: осталось %d", len(countries))
+            except Exception as exc:
+                logger.warning("[COUNTRIES] ошибка чтения AppSettings: %s", exc)
 
         if search:
             search_val = search.lower().strip()

@@ -188,3 +188,13 @@ class TransactionPageResponse(BaseModel):
     items: list[TransactionItem]
     next_cursor: Optional[int] = None
     has_more: bool
+
+# ---- AppSettings ------------------------------------------------
+class AppSettingsResponse(BaseModel):
+    allowed_area_ids: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class AppSettingsUpdate(BaseModel):
+    allowed_area_ids: Optional[str] = None

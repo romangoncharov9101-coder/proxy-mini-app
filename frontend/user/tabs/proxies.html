@@ -121,8 +121,8 @@ function renderProxyItems(items) {
             <div class="p-3 flex items-center justify-between gap-3">
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="shrink-0" onclick="event.stopPropagation(); toggleProxySelect(${p.id}, event)">
-                        <div id="proxy-check-${p.id}" class="w-5 h-5 border-2 border-black flex items-center justify-center transition-all bg-white">
-                            <span class="text-[10px] font-black text-white hidden proxy-check-icon-${p.id}">✓</span>
+                        <div id="proxy-check-${p.id}" class="w-5 h-5 border-2 border-black flex items-center justify-center transition-all" style="background:#fff;">
+                            <span class="text-[10px] font-black hidden proxy-check-icon-${p.id}" style="color:#fff;">✓</span>
                         </div>
                     </div>
 
@@ -187,11 +187,11 @@ function toggleProxySelect(proxyId, event) {
  
     if (_selectedProxyIds.has(proxyId)) {
         _selectedProxyIds.delete(proxyId);
-        if (checkBox) checkBox.classList.remove('bg-black');
+        if (checkBox) { checkBox.style.background = '#fff'; }
         checkIcons.forEach(function(ic) { ic.classList.add('hidden'); });
     } else {
         _selectedProxyIds.add(proxyId);
-        if (checkBox) checkBox.classList.add('bg-black');
+        if (checkBox) { checkBox.style.background = '#000'; }
         checkIcons.forEach(function(ic) { ic.classList.remove('hidden'); });
     }
  
@@ -202,7 +202,7 @@ function toggleProxySelect(proxyId, event) {
 function clearProxySelection() {
     _selectedProxyIds.forEach(function(id) {
         var cb = document.getElementById('proxy-check-' + id);
-        if (cb) cb.classList.remove('bg-black');
+        if (cb) { cb.style.background = '#fff'; }
         document.querySelectorAll('.proxy-check-icon-' + id).forEach(function(ic) { ic.classList.add('hidden'); });
     });
     _selectedProxyIds.clear();

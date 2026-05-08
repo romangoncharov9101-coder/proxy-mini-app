@@ -55,7 +55,7 @@
         const expires = p.expires_at ? new Date(p.expires_at).toLocaleString('ru-RU') : '-';
         const bought = p.purchased_at ? new Date(p.purchased_at).toLocaleString('ru-RU') : '-';
         const renewal = p.renewal_at ? new Date(p.renewal_at).toLocaleString('ru-RU') : '-';
-        const connStr = `${p.type}://${p.username || ''}:${p.password || ''}@${p.host}:${p.port}`;
+        const connStr = `${p.type}://${p.host}:${p.port}:${p.username || ''}:${p.password || ''}`;
 
         const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const adminSystemBlock = isAdmin ? `
@@ -81,6 +81,14 @@
                 <span class="font-bold text-gray-400">ORDER_ID</span>
                 <span class="font-black">${p.ipfoxy_order_id || '—'}</span>
             </div>
+        </div>
+        <div class=\"border-2 border-black p-3\">
+            <div class=\"text-[9px] font-black text-gray-400 mb-1\">СТРОКА БЫСТРОГО КОПИРОВАНИЯ</div>
+            <div class=\"text-[8px] font-mono normal-case bg-zinc-50 p-2 break-all leading-relaxed\">${p.host}:${p.port}:${p.username || ''}:${p.password || ''}</div>
+            <button onclick=\"copyText('${esc(p.host)}:${esc(String(p.port))}:${esc(p.username||'')}:${esc(p.password||'')}')\"
+                class=\"mt-2 w-full border-2 border-black py-2 text-[9px] font-black hover:bg-black hover:text-white transition-all\">
+                КОПИРОВАТЬ IP:PORT:ЛОГИН:ПАРОЛЬ
+            </button>
         </div>` : '';
 
         const userConnBlock = !isAdmin ? `

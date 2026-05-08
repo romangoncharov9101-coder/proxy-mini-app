@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Numeric, ForeignKey, Enum as SAEnum, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, Boolean, DateTime, Numeric, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -148,6 +148,16 @@ class Regions(Base):
 
     def __repr__(self):
         return f"<Regions area_id={self.area_id} country={self.country}>"
+    
+class AppSettings(Base):
+    __tablename__ = 'app_settings'
+
+    id = Column(Integer, primary_key=True, index=True)
+    allowed_area_ids = Column(String(2000), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f'<AppSettings allowed_area_ids=[self.allowed_area_ids]>'
     
 class Notifications(Base):
     __tablename__ = 'notifications'

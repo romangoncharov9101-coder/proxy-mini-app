@@ -22,8 +22,12 @@
                 КЛЮЧИ
             </div>
             <div id="sub-tab-users-btn" onclick="switchKeysSubTab('users')"
-                 class="flex-1 py-2 text-center cursor-pointer bg-white text-black hover:bg-zinc-100">
+                 class="flex-1 py-2 text-center border-r border-black cursor-pointer bg-white text-black hover:bg-zinc-100">
                 ПОЛЬЗОВАТЕЛИ
+            </div>
+            <div id="sub-tab-settings-btn" onclick="switchKeysSubTab('settings')"
+                 class="flex-1 py-2 text-center cursor-pointer bg-white text-black hover:bg-zinc-100">
+                НАСТРОЙКИ
             </div>
         </div>
 
@@ -58,12 +62,41 @@
             <div id="admin-users-list" class="space-y-3"></div>
             <div id="admin-users-status" class="text-[9px] text-gray-400 font-black text-center py-2"></div>
         </div>
+        <!-- == ПОДВКЛАДКА: НАСТРОЙКИ == -->
+        <div id="sub-tab-settings" class="hidden p-4 space-y-4">
+            <div class="border-2 border-black p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] space-y-3">
+                <div class="text-[10px] font-black uppercase">ФИЛЬТР РЕГИОНОВ МАРКЕТА</div>
+                <div class="text-[8px] font-bold text-gray-400 normal-case">
+                    Укажите разрешённые area_id через запятую. Пользователи увидят только эти регионы в Маркете.
+                    Оставьте пустым — показывать все регионы.
+                </div>
+                <textarea id="settings-allowed-area-ids" rows="4"
+                    placeholder="Например: 10,20,45,67"
+                    class="w-full border-2 border-black p-2 text-[10px] font-black font-mono resize-none outline-none focus:bg-zinc-50"></textarea>
+                <div class="flex gap-2">
+                    <button onclick="clearAreaIdSettings()"
+                        class="flex-1 border-2 border-black py-2 text-[9px] font-black uppercase hover:bg-zinc-100 transition-all">
+                        СБРОСИТЬ (ВСЕ)
+                    </button>
+                    <button onclick="saveAreaIdSettings()"
+                        class="flex-1 bg-black text-white py-2 text-[9px] font-black uppercase hover:invert transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        СОХРАНИТЬ
+                    </button>
+                </div>
+                <div id="settings-save-status" class="text-[9px] font-black text-center hidden"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════ -->
     <!-- ВКЛАДКА: ПРОКСИ                                   -->
     <!-- ══════════════════════════════════════════════════ -->
     <div id="admin-proxies-section" class="hidden p-4 space-y-3">
+        <!-- Кнопка открытия маркета для администратора -->
+        <button onclick="openAdminMarket()"
+            class="w-full border-2 border-black p-3 text-[10px] font-black hover:bg-black hover:text-white uppercase transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none">
+            🛒 ОТКРЫТЬ МАРКЕТ (КУПИТЬ ПРОКСИ)
+        </button>
         <div class="grid grid-cols-2 gap-2">
             <input type="text" id="filter-proxies-search" placeholder="HOST / PROXY_ID / ORDER_ID / USERNAME / TG_ID / ИМЯ КЛЮЧА"
                 class="col-span-2 border-2 border-black p-2 text-[10px] font-black uppercase outline-none">
@@ -135,6 +168,27 @@
 
 </div>
 
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- МАРКЕТ ДЛЯ АДМИНИСТРАТОРА (overlay поверх layout) -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="admin-market-overlay" class="hidden fixed inset-0 bg-white z-[50] flex flex-col">
+        <!-- Шапка с кнопкой назад -->
+        <div class="sticky top-0 z-10 flex items-center gap-3 bg-black text-white px-4 py-3 border-b-2 border-black shrink-0">
+            <button onclick="closeAdminMarket()" class="text-xl font-black leading-none hover:opacity-70 transition-all">←</button>
+            <span class="text-[10px] font-black tracking-widest flex-1 text-center">МАРКЕТ / КУПИТЬ ПРОКСИ</span>
+        </div>
+        <div class="p-4 space-y-3 overflow-y-auto flex-1">
+            <div class="mb-3">
+                <input type="text" id="admin-market-country-search"
+                       placeholder="НАЙТИ СТРАНУ..."
+                       oninput="debounceAdminCountrySearch()"
+                       class="w-full bg-white border-2 border-black p-2 text-[10px] font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none outline-none transition-all">
+            </div>
+            <div id="admin-countries-container" class="space-y-3"></div>
+            <div id="admin-market-status" class="py-3 text-center text-[9px] font-black text-gray-400 uppercase"></div>
+        </div>
+    </div>
+
 <!-- ════════════════════════════════════════════════════════
      МОДАЛЫ
 ════════════════════════════════════════════════════════ -->
@@ -144,6 +198,58 @@
 {% include "admin/modals/modal_user_detail.html" %}
 {% include "shared/modal_proxy_detail.html" %}
 {% include "shared/modal_auto_extend_confirm.html" %}
+{% include "user/modals/days_option_modal.html" %}
+
+<div id="purchase-success-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 text-center">
+            <div class="text-3xl font-black mb-1">✓</div>
+            <div class="text-[10px] font-black tracking-widest">ЗАКАЗ ВЫПОЛНЕН</div>
+        </div>
+        <div class="p-6 space-y-3">
+            <div id="purchase-success-info" class="text-[10px] font-bold text-gray-600 space-y-1 border-2 border-black p-3 bg-zinc-50"></div>
+            <button onclick="smartCloseModal('purchase-success-modal'); closeAdminMarket(); resetAndReloadAdminProxies();"
+                class="w-full bg-black text-white py-3 text-[10px] font-black hover:invert transition-all">
+                ПЕРЕЙТИ К ПРОКСИ
+            </button>
+        </div>
+    </div>
+</div>
+<div id="purchase-error-modal" class="modal-overlay hidden fixed inset-0 bg-black/70 z-[90] flex items-center justify-center p-4">
+    <div class="bg-white border-4 border-black w-full max-w-sm shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+        <div class="bg-black text-white p-4 text-center">
+            <div class="text-3xl font-black mb-1">✕</div>
+            <div class="text-[10px] font-black tracking-widest">ОШИБКА ОПЕРАЦИИ</div>
+        </div>
+        <div class="p-6 space-y-3">
+            <div id="purchase-error-info" class="text-[10px] font-bold text-red-600 border-2 border-red-500 p-3 bg-red-50"></div>
+            <button onclick="smartCloseModal('purchase-error-modal')"
+                class="w-full border-2 border-black py-3 text-[10px] font-black hover:bg-black hover:text-white transition-all">
+                ЗАКРЫТЬ
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Хелперы для модала покупки (нужны для days_option_modal)
+let currentSelection = null;
+function showPurchaseSuccess(orderData) {
+    const info = document.getElementById('purchase-success-info');
+    const count = orderData.count ?? currentSelection?.quantity ?? '—';
+    if (info) info.innerHTML = `
+        <div class="flex justify-between"><span>ЗАКАЗ</span><span class="font-black">#${orderData.order_id}</span></div>
+        <div class="flex justify-between"><span>КУПЛЕНО</span><span class="font-black">${count} ШТ.</span></div>
+        <div class="flex justify-between"><span>СТАТУС</span><span class="font-black">АКТИВАЦИЯ...</span></div>
+    `;
+    document.getElementById('purchase-success-modal')?.classList.remove('hidden');
+}
+function showPurchaseError(message) {
+    const info = document.getElementById('purchase-error-info');
+    if (info) info.innerText = message;
+    document.getElementById('purchase-error-modal')?.classList.remove('hidden');
+}
+</script>
 
 <script>
 /* ════════ STATE ════════ */
@@ -169,6 +275,10 @@ function switchAdminTab(tab, el) {
         document.getElementById('admin-' + t + '-section').classList.toggle('hidden', t !== tab)
     );
 
+    // Сброс скролла при переключении вкладок
+    const mainScroll = document.getElementById('main-scroll');
+    if (mainScroll) mainScroll.scrollTop = 0;
+
     if (tab === 'proxies' && adminProxiesState.nextCursor === null && adminProxiesState.hasMore) {
         loadNextAdminProxiesPage();
     }
@@ -178,21 +288,7 @@ function switchAdminTab(tab, el) {
 }
 
 /* ════════ ПОДВКЛАДКИ КЛЮЧИ/ПОЛЬЗОВАТЕЛИ ════════ */
-function switchKeysSubTab(tab) {
-    const isKeys = tab === 'keys';
-    document.getElementById('sub-tab-keys').classList.toggle('hidden', !isKeys);
-    document.getElementById('sub-tab-users').classList.toggle('hidden', isKeys);
-    document.getElementById('sub-tab-keys-btn').className  = `flex-1 py-2 text-center border-r border-black cursor-pointer ${isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
-    document.getElementById('sub-tab-users-btn').className = `flex-1 py-2 text-center cursor-pointer ${!isKeys ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
-
-    if (!isKeys) {
-        const container = document.getElementById('admin-users-list');
-        const isEmpty = !container || container.children.length === 0;
-        if (isEmpty && adminUsersState.hasMore) {
-            loadNextUsersPage();
-        }
-    }
-}
+// switchKeysSubTab moved below
 
 async function loadApiKeys() {
     const container = document.getElementById('keys-list');
@@ -391,7 +487,7 @@ let _adminSelectionMode = false;
 function clearAdminProxySelection() {
     _adminSelectedProxyIds.forEach(function(id) {
         const cb = document.getElementById('admin-proxy-check-' + id);
-        if (cb) cb.classList.remove('bg-black');
+        if (cb) { cb.style.background = '#fff'; }
         document.querySelectorAll('.admin-proxy-check-icon-' + id).forEach(ic => ic.classList.add('hidden'));
     });
     _adminSelectedProxyIds.clear();
@@ -406,11 +502,11 @@ function toggleAdminProxySelect(proxyId, event) {
 
     if (_adminSelectedProxyIds.has(proxyId)) {
         _adminSelectedProxyIds.delete(proxyId);
-        if (checkBox) checkBox.classList.remove('bg-black');
+        if (checkBox) { checkBox.style.background = '#fff'; }
         checkIcons.forEach(ic => ic.classList.add('hidden'));
     } else {
         _adminSelectedProxyIds.add(proxyId);
-        if (checkBox) checkBox.classList.add('bg-black');
+        if (checkBox) { checkBox.style.background = '#000'; }
         checkIcons.forEach(ic => ic.classList.remove('hidden'));
     }
     _adminSelectionMode = _adminSelectedProxyIds.size > 0;
@@ -641,5 +737,215 @@ function resetAndReloadAdminProxies() {
     clearAdminProxySelection();
     document.getElementById('admin-proxies-list').innerHTML = '';
     debounceFilter(loadNextAdminProxiesPage);
+}
+
+/* ════════════════════════════════════════
+   ПОДВКЛАДКА НАСТРОЙКИ
+════════════════════════════════════════ */
+function switchKeysSubTab(tab) {
+    const tabs = ['keys', 'users', 'settings'];
+    tabs.forEach(t => {
+        const contentEl = document.getElementById('sub-tab-' + t);
+        const btnEl = document.getElementById('sub-tab-' + t + '-btn');
+        if (!contentEl || !btnEl) return;
+        const isActive = t === tab;
+        contentEl.classList.toggle('hidden', !isActive);
+        const hasBorder = t !== 'settings';
+        btnEl.className = `flex-1 py-2 text-center cursor-pointer ${hasBorder ? 'border-r border-black ' : ''}${isActive ? 'bg-zinc-900 text-white' : 'bg-white text-black hover:bg-zinc-100'}`;
+    });
+
+    // Сброс скролла при переключении подвкладок
+    const mainScrollSub = document.getElementById('main-scroll');
+    if (mainScrollSub) mainScrollSub.scrollTop = 0;
+
+    if (tab === 'users') {
+        const container = document.getElementById('admin-users-list');
+        const isEmpty = !container || container.children.length === 0;
+        if (isEmpty && adminUsersState.hasMore) {
+            loadNextUsersPage();
+        }
+    }
+    if (tab === 'settings') {
+        loadAreaIdSettings();
+    }
+}
+
+async function loadAreaIdSettings() {
+    try {
+        const res = await fetch('/api/v1/admin/settings', { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        const ta = document.getElementById('settings-allowed-area-ids');
+        if (ta) ta.value = data.allowed_area_ids || '';
+    } catch(e) {
+        console.error('Ошибка загрузки настроек:', e);
+    }
+}
+
+async function saveAreaIdSettings() {
+    const ta = document.getElementById('settings-allowed-area-ids');
+    const statusEl = document.getElementById('settings-save-status');
+    const value = ta ? ta.value.trim() : '';
+    try {
+        const res = await fetch('/api/v1/admin/settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ allowed_area_ids: value || null })
+        });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        if (ta) ta.value = data.allowed_area_ids || '';
+        if (statusEl) {
+            statusEl.innerText = '✓ СОХРАНЕНО';
+            statusEl.className = 'text-[9px] font-black text-center text-green-600';
+            statusEl.classList.remove('hidden');
+            setTimeout(() => statusEl.classList.add('hidden'), 2000);
+        }
+    } catch(e) {
+        if (statusEl) {
+            statusEl.innerText = '✕ ОШИБКА СОХРАНЕНИЯ';
+            statusEl.className = 'text-[9px] font-black text-center text-red-500';
+            statusEl.classList.remove('hidden');
+        }
+    }
+}
+
+async function clearAreaIdSettings() {
+    const ta = document.getElementById('settings-allowed-area-ids');
+    if (ta) ta.value = '';
+    await saveAreaIdSettings();
+}
+
+/* ════════════════════════════════════════
+   МАРКЕТ ДЛЯ АДМИНИСТРАТОРА
+════════════════════════════════════════ */
+let adminMarketState = { nextCursor: null, hasMore: true, isLoading: false };
+let _adminCountrySearchTimeout = null;
+
+function openAdminMarket() {
+    const overlay = document.getElementById('admin-market-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    const container = document.getElementById('admin-countries-container');
+    if (container && container.children.length === 0) {
+        resetAndReloadAdminMarket();
+    }
+}
+
+function closeAdminMarket() {
+    const overlay = document.getElementById('admin-market-overlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function debounceAdminCountrySearch() {
+    clearTimeout(_adminCountrySearchTimeout);
+    _adminCountrySearchTimeout = setTimeout(() => resetAndReloadAdminMarket(), 400);
+}
+
+function resetAndReloadAdminMarket() {
+    adminMarketState = { nextCursor: null, hasMore: true, isLoading: false };
+    const container = document.getElementById('admin-countries-container');
+    if (container) container.innerHTML = '';
+    loadNextAdminMarketPage();
+}
+
+async function loadNextAdminMarketPage() {
+    if (!adminMarketState.hasMore || adminMarketState.isLoading) return;
+    adminMarketState.isLoading = true;
+
+    const statusEl = document.getElementById('admin-market-status');
+    if (statusEl) statusEl.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
+
+    try {
+        const search = document.getElementById('admin-market-country-search')?.value.trim() || '';
+        const params = new URLSearchParams({ limit: 20 });
+
+        if (search) {
+            params.set('search', search);
+        } else if (adminMarketState.nextCursor != null) {
+            params.append('last_id', adminMarketState.nextCursor);
+        }
+
+        // Используем эндпоинт пользователя, но администратор видит все регионы
+        const response = await fetch(`/api/v1/admin/market/countries?${params}`, {
+            headers: { 'X-TG-Init-Data': TG_INIT }
+        });
+
+        if (!response.ok) throw new Error('Ошибка сервера: ' + response.status);
+        const data = await response.json();
+        renderAdminMarketItems(data.items || []);
+
+        if (search) {
+            adminMarketState.hasMore = false;
+            adminMarketState.nextCursor = null;
+        } else {
+            adminMarketState.nextCursor = data.next_cursor;
+            adminMarketState.hasMore = data.has_more;
+        }
+
+        if (statusEl) {
+            if ((data.items || []).length === 0 && !adminMarketState.nextCursor) {
+                statusEl.innerHTML = '<span class="text-gray-300">РЕГИОНЫ НЕ НАЙДЕНЫ</span>';
+            } else {
+                statusEl.innerText = adminMarketState.hasMore ? 'ЛИСТАЙТЕ ВНИЗ' : 'ВСЕ РЕГИОНЫ ЗАГРУЖЕНЫ';
+            }
+        }
+    } catch(e) {
+        if (statusEl) statusEl.innerHTML = '<span class="text-red-500">ОШИБКА ЗАГРУЗКИ</span>';
+    } finally {
+        adminMarketState.isLoading = false;
+    }
+}
+
+function renderAdminMarketItems(items) {
+    const container = document.getElementById('admin-countries-container');
+    if (!container) return;
+
+    items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'w-full flex shrink-0 items-center justify-between p-3 border-2 border-black bg-white hover:bg-zinc-50 active:scale-[0.98] transition-all cursor-pointer';
+
+        const cc = (item.country_code || 'un').toLowerCase();
+        const name = item.country || 'Unknown';
+        const ver = item.ip_version || 'IPv4';
+        const type = (item.ip_type || 'STATIC').replace(/_/g, ' ');
+        const price = item.retail_price !== undefined ? parseFloat(item.retail_price).toFixed(2) : '0.00';
+
+        card.onclick = () => openAdminDurationModal(item.area_id);
+        card.innerHTML = `
+            <div class="flex items-center gap-3">
+                <img src="https://flagcdn.com/w40/${cc}.png"
+                    class="w-6 h-4 border border-black object-cover shrink-0"
+                    onerror="this.src='https://placehold.co/40x30?text=?'">
+                <div class="flex flex-col min-w-0">
+                    <span class="text-[11px] font-black uppercase leading-none truncate">${name}</span>
+                    <span class="text-[8px] font-bold text-gray-400 uppercase mt-0.5">${ver} · ${type}</span>
+                </div>
+            </div>
+            <div class="text-[12px] font-black tracking-tighter shrink-0 ml-2">${price} <span class="text-[8px]">USD</span></div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// Прокрутка маркета
+document.addEventListener('scroll', () => {
+    const overlay = document.getElementById('admin-market-overlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+        const scrolled = window.scrollY + window.innerHeight;
+        const total = document.documentElement.scrollHeight;
+        if (total - scrolled < 300) {
+            loadNextAdminMarketPage();
+        }
+    }
+}, { passive: true });
+
+// Функция открытия модала выбора дней для покупки от имени админа
+// Переиспользует openDurationModal из user части (если доступна) или показывает заглушку
+function openAdminDurationModal(areaId) {
+    if (typeof openDurationModal === 'function') {
+        openDurationModal(areaId);
+    } else {
+        window.Telegram?.WebApp?.showAlert?.('Функция покупки недоступна в данном контексте');
+    }
 }
 </script>

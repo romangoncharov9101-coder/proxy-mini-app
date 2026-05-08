@@ -116,6 +116,10 @@ function switchUserTab(tab) {
         navEl.classList.toggle('hover:bg-zinc-100', t !== tab);
     });
 
+    // Сброс скролла при переключении вкладок
+    const mainScroll = document.getElementById('main-scroll');
+    if (mainScroll) mainScroll.scrollTop = 0;
+
     if (tab === 'market') {
         const container = document.getElementById('countries-container');
         if (container && container.children.length === 0) {

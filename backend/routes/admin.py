@@ -12,12 +12,13 @@ from sqlalchemy import or_
 from backend.database.database import get_db
 from backend.database import schemas
 from backend.database.models import (
-    User, UserRole, ApiKey, Proxy, Transaction, Whitelist
+    User, UserRole, ApiKey, Proxy, Transaction, Whitelist, Regions, AppSettings
 )
 from backend.utils.security import require_admin
 from backend.utils.crypto import encrypt_data
 from backend.api_services.ipfoxy import IPFoxyService
 from backend.api_services.extend_service import extend_proxies_service
+from backend.database.models import AppSettings
 from backend.api_services.proxy_service import (
     get_proxy_page,
     get_proxy_detail_for_admin
@@ -556,3 +557,114 @@ async def get_all_transactions(
 
     logger.debug('[ADMIN_TX] возвращено %d транзакций, has_more=%s', len(items), has_more)
     return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
+
+@router.get('/settings', response_model=schemas.AppSettingsResponse)
+async def get_app_settings(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    settings_obj = result.scalar_one_or_none()
+    if not settings_obj:
+        return schemas.AppSettingsResponse(allowed_area_ids=None)
+    return schemas.AppSettingsResponse(allowed_area_ids=settings_obj.allowed_area_ids)
+
+@router.patch('/settings', response_model=schemas.AppSettingsResponse)
+async def update_app_settings(
+    data: schemas.AppSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+    settings_obj = result.scalar_one_or_none()
+    raw = data.allowed_area_ids
+    if raw:
+        cleaned = ','.join(x.strip() for x in raw.split(',') if x.strip())
+        raw = cleaned if cleaned else None
+
+    if not settings_obj:
+        settings_obj = AppSettings(id=1, allowed_area_ids=raw)
+        db.add(settings_obj)
+    else:
+        settings_obj.allowed_area_ids = raw
+
+    await db.commit()
+    await db.refresh(settings_obj)
+    return schemas.AppSettingsResponse(allowed_area_ids=settings_obj.allowed_area_ids)
+
+import json as _json
+from sqlalchemy import asc as _asc
+from redis.asyncio import Redis as _Redis
+from backend.utils.config import settings as _settings
+
+ADMIN_CACHE_KEY_COUNTRIES = 'all_countries_cache'
+ADMIN_CACHE_EXPIRE = 3600
+
+@router.get('/market/countries', response_model=schemas.CountriesResponse)
+async def admin_get_countries(
+    last_id: Optional[int] = Query(default=None),
+    limit: int = Query(20, ge=1, le=20),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    countries = None
+    try:
+        async with _Redis.from_url(
+            _settings.REDIS_URL,
+            decode_response=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        ) as redis_client:
+            cached_raw = await redis_client.get(ADMIN_CACHE_KEY_COUNTRIES)
+            if cached_raw:
+                try:
+                    countries = _json.loads(cached_raw)
+                except Exception:
+                    countries = None
+    except Exception:
+        countries = None
+
+    if not countries:
+        stmt = (
+            select(Regions)
+            .where(Regions.status.is_(True))
+            .order_by(_asc(Regions.id))
+        )
+        result = await db.execute(stmt)
+        all_regions = result.scalars().all()
+        countries = [
+            {
+                "id": r.id,
+                "area_id": r.area_id,
+                "ip_type": r.ip_type,
+                "ip_version": r.ip_version,
+                "country": r.country or "",
+                "country_code": r.country_code or "",
+                "retail_price": float(r.retail_price) if r.retail_price else 0.0,
+            }
+            for r in all_regions
+        ]
+    if search:
+        search_val = search.lower().strip()
+        countries = [
+            c for c in countries
+            if search_val in (c['country'] or '').lower()
+            or search_val in (c['country_code'] or '').lower()
+        ]
+        return {'items': countries, 'next_cursor': None, 'has_more': False}
+    
+    start_index = 0
+    if last_id is not None:
+        for i, c in enumerate(countries):
+            if c['id'] == last_id:
+                start_index = i + 1
+                break
+        else:
+            return {'items': [], 'next_cursor': None, 'has_more': False}
+        
+    page = countries[start_index:start_index + limit]
+    has_more = (start_index + limit) < len(countries)
+    next_cursor = page[-1]['id'] if page and has_more else None
+
+    return {'items': page, 'next_cursor': next_cursor, 'has_more': has_more}
