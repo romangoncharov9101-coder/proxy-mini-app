@@ -78,7 +78,11 @@ celery_app.conf.beat_schedule = {
     },
     'sync_balances_every_15min': {
         'task': 'backend.tasks.sync_tasks.sync_balances_task',
-        'schedule': crontab(minute='*/15'),
+        'schedule': crontab(minute='*/30'),
+    },
+    'sync_proxies_every_30min': {
+        'task': 'backend.tasks.sync_tasks.sync_proxies_task',
+        'schedule': crontab(minute='*/30'),
     },
     'daily_notify_expiring_proxies': {
         'task': 'backend.tasks.notifications_tasks.notify_expiring_proxies_task',

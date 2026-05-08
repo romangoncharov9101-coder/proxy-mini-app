@@ -154,3 +154,162 @@ def sync_balances_task(self):
     except Exception as exc:
         logger.error(f'[SYNC_BALANCES] Неперехваченная ошибка: {exc}')
         raise self.retry(exc=exc)
+
+
+@shared_task(name='backend.tasks.sync_tasks.sync_proxies_task', bind=True, max_retries=3, default_retry_delay=60)
+def sync_proxies_task(self, api_key_db_id: int = None):
+    """
+    Синхронизирует прокси из IPFoxy.
+
+    Если передан api_key_db_id — синхронизирует только этот ключ (вызов при открытии приложения).
+    Если не передан — синхронизирует все активные ключи (вызов по расписанию каждые 30 мин).
+
+    Правила:
+      - page_size=50 (максимум IPFoxy), обходим все страницы до конца
+      - Открываем соединение с БД только если нашли proxy_id которого ещё нет в таблице
+      - Уже существующие записи НЕ трогаем — только INSERT новых
+    """
+    logger.info(f'[SYNC_PROXIES] Задача запущена api_key_db_id={api_key_db_id}')
+
+    async def logic():
+        import json
+        from datetime import datetime, timezone
+        from backend.database.models import Proxy, Regions
+        from redis.asyncio import Redis
+        from backend.utils.config import settings as cfg
+
+        # Получаем список ключей для обработки
+        async with AssyncSessionLocal() as db:
+            if api_key_db_id:
+                stmt = select(ApiKey).where(ApiKey.id == api_key_db_id, ApiKey.is_active.is_(True))
+            else:
+                stmt = select(ApiKey).where(ApiKey.is_active.is_(True)).order_by(ApiKey.id)
+            result = await db.execute(stmt)
+            keys: list[ApiKey] = result.scalars().all()
+
+            if not keys:
+                logger.warning('[SYNC_PROXIES] Нет активных ключей для синхронизации')
+                return {'status': 'warning', 'reason': 'no_active_keys'}
+
+            # Загружаем множество уже известных ipfoxy_proxy_id из БД одним запросом
+            existing_res = await db.execute(select(Proxy.ipfoxy_proxy_id))
+            existing_ids: set[str] = {r for r in existing_res.scalars().all() if r}
+            logger.info(f'[SYNC_PROXIES] В БД уже есть {len(existing_ids)} прокси')
+
+            # Загружаем валидные area_id для проверки FK
+            reg_res = await db.execute(select(Regions.area_id))
+            valid_area_ids: set[str] = {str(r) for r in reg_res.scalars().all()}
+
+        total_new = 0
+
+        for key_obj in keys:
+            service = IPFoxyService.get_service_by_key_obj(key_obj)
+            logger.info(f'[SYNC_PROXIES] Обрабатываю ключ id={key_obj.id} name={key_obj.key_name}')
+
+            # Собираем все прокси ключа постранично (page_size=50 — максимум IPFoxy)
+            new_proxies_to_insert: list[dict] = []
+            page = 1
+            page_size = 50
+
+            while True:
+                try:
+                    batch = await service.get_proxies_list(page=page, page_size=page_size)
+                except Exception as exc:
+                    logger.error(f'[SYNC_PROXIES] Ошибка получения стр.{page} ключ={key_obj.key_name}: {exc}')
+                    break
+
+                if not batch:
+                    break
+
+                logger.debug(f'[SYNC_PROXIES] key={key_obj.key_name} стр.{page}: получено {len(batch)} шт.')
+
+                for p in batch:
+                    proxy_id = str(p.get('id') or '').strip()
+                    if not proxy_id or proxy_id in existing_ids:
+                        continue  # уже есть — пропускаем
+
+                    host = str(p.get('host') or '').strip()
+                    port_raw = p.get('port')
+                    try:
+                        port = int(port_raw)
+                    except (TypeError, ValueError):
+                        continue  # нет порта — пропускаем
+
+                    if not host or not port:
+                        continue
+
+                    area_id = str(p.get('area_id') or '').strip()
+                    if not area_id or area_id not in valid_area_ids:
+                        logger.warning(f'[SYNC_PROXIES] area_id={area_id} не в БД, пропускаю proxy_id={proxy_id}')
+                        continue
+
+                    # Парсим unix-timestamp поля
+                    def ts_to_dt(val):
+                        if not val:
+                            return None
+                        try:
+                            return datetime.fromtimestamp(int(val), tz=timezone.utc)
+                        except Exception:
+                            return None
+
+                    new_proxies_to_insert.append({
+                        'ipfoxy_proxy_id': proxy_id,
+                        'host':            host,
+                        'public_ip':       str(p.get('public_ip') or host),
+                        'port':            port,
+                        'type':            str(p.get('type') or 'http'),
+                        'username':        str(p.get('user') or ''),
+                        'password':        str(p.get('password') or ''),
+                        'auto_extend':     str(p.get('auto_extend', '0')) == '1',
+                        'ip_type':         str(p.get('ip_type') or ''),
+                        'ip_version':      str(p.get('ip_version') or 'IPv4'),
+                        'country_code':    str(p.get('country_code') or ''),
+                        'area_id':         area_id,
+                        'api_key_id':      key_obj.id,
+                        'expires_at':      ts_to_dt(p.get('expire_time')),
+                        'purchased_at':    ts_to_dt(p.get('buy_time')),
+                        'renewal_at':      ts_to_dt(p.get('renewal_time')),
+                        'is_active':       True,
+                    })
+                    existing_ids.add(proxy_id)  # чтобы не дублировать в рамках одного запуска
+
+                if len(batch) < page_size:
+                    break  # последняя страница
+                page += 1
+
+            logger.info(f'[SYNC_PROXIES] key={key_obj.key_name}: новых прокси для вставки — {len(new_proxies_to_insert)}')
+
+            # Открываем БД только если есть что вставить
+            if new_proxies_to_insert:
+                async with AssyncSessionLocal() as db:
+                    for data in new_proxies_to_insert:
+                        db.add(Proxy(**data))
+                    await db.commit()
+                    logger.info(f'[SYNC_PROXIES] key={key_obj.key_name}: вставлено {len(new_proxies_to_insert)} прокси')
+                total_new += len(new_proxies_to_insert)
+
+        logger.info(f'[SYNC_PROXIES] Завершено. Всего новых: {total_new}')
+
+        # Инвалидируем Redis-кеш только если что-то добавили
+        if total_new > 0:
+            try:
+                async with Redis.from_url(
+                    cfg.REDIS_URL, decode_responses=True,
+                    socket_connect_timeout=2, socket_timeout=2,
+                ) as redis:
+                    # Удаляем кеш всех пользователей и администратора
+                    keys_to_del = await redis.keys('user:proxies:*')
+                    keys_to_del.append('admin:proxies:all')
+                    if keys_to_del:
+                        await redis.delete(*keys_to_del)
+                    logger.info(f'[SYNC_PROXIES] Redis-кеш инвалидирован: {len(keys_to_del)} ключей')
+            except Exception as exc:
+                logger.warning(f'[SYNC_PROXIES] Не удалось инвалидировать Redis-кеш: {exc}')
+
+        return {'status': 'ok', 'new': total_new}
+
+    try:
+        return run_async(logic())
+    except Exception as exc:
+        logger.error(f'[SYNC_PROXIES] Неперехваченная ошибка: {exc}', exc_info=True)
+        raise self.retry(exc=exc)

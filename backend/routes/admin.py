@@ -1,6 +1,8 @@
 import logging
 import asyncio
+import json as _json_admin
 from typing import Optional
+from redis.asyncio import Redis as _AdminRedis
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
@@ -66,6 +68,23 @@ async def get_api_keys(
         await db.commit()
     except Exception as exc:
         logger.error(f'[KEYS] ошибка сохранения баланса: {exc}')
+
+    # Запускаем синхронизацию всех прокси в фоне если кеш администратора пустой
+    # (первый заход или истёк TTL 30 мин)
+    try:
+        from redis.asyncio import Redis as _AdminSyncRedis
+        from backend.utils.config import settings as _cfg_sync
+        async with _AdminSyncRedis.from_url(
+            _cfg_sync.REDIS_URL, decode_responses=True,
+            socket_connect_timeout=1, socket_timeout=1,
+        ) as _r:
+            cache_exists = await _r.exists('admin:proxies:all')
+        if not cache_exists:
+            from backend.tasks.sync_tasks import sync_proxies_task
+            sync_proxies_task.delay()  # без api_key_db_id — синхронизирует все ключи
+            logger.info('[KEYS] Запущена фоновая синхронизация всех прокси для администратора')
+    except Exception as _exc:
+        logger.warning('[KEYS] Не удалось запустить sync_proxies_task: %s', _exc)
 
     return keys
 
@@ -374,6 +393,9 @@ async def assign_key_to_users(
         'key_name': api_key.key_name,
     }
 
+ADMIN_PROXY_CACHE_KEY = 'admin:proxies:all'
+ADMIN_PROXY_CACHE_TTL = 900  # 15 минут
+
 @router.get('/proxies', response_model=schemas.ProxyPageResponse)
 async def get_all_proxies(
     last_id:      Optional[int] = Query(None),
@@ -387,11 +409,27 @@ async def get_all_proxies(
 ):
     '''
     Все прокси системы с cursor-пагинацией.
-    Фильтры: по ключу, по владельцу, по статусу (active/inactive/expired/all).
-    Поиск: по host/proxy_id/order_id прокси, username/tg_id владельца, key_name/api_id ключа.
-    Сортировка: новые первые.
+    Первая страница без фильтров кешируется в Redis на 15 минут.
     '''
-    return await get_proxy_page(
+    from backend.utils.config import settings as _cfg_admin
+
+    use_cache = (last_id is None and not search and not key_id and not owner_id and not proxy_status)
+    cache_key = ADMIN_PROXY_CACHE_KEY
+
+    if use_cache:
+        try:
+            async with _AdminRedis.from_url(
+                _cfg_admin.REDIS_URL, decode_responses=True,
+                socket_connect_timeout=2, socket_timeout=2,
+            ) as redis:
+                cached = await redis.get(cache_key)
+                if cached:
+                    logger.debug("[ADMIN_PROXIES] cache HIT")
+                    return _json_admin.loads(cached)
+        except Exception as exc:
+            logger.warning("[ADMIN_PROXIES] Redis недоступен при чтении: %s", exc)
+
+    result = await get_proxy_page(
         db,
         last_id=last_id,
         limit=limit,
@@ -400,6 +438,48 @@ async def get_all_proxies(
         filter_owner_id=owner_id,
         proxy_status=proxy_status if proxy_status != 'all' else None,
     )
+
+    if use_cache:
+        try:
+            async with _AdminRedis.from_url(
+                _cfg_admin.REDIS_URL, decode_responses=True,
+                socket_connect_timeout=2, socket_timeout=2,
+            ) as redis:
+                serializable = schemas.ProxyPageResponse(
+                    items=[schemas.ProxyListItem.model_validate(p) for p in result["items"]],
+                    next_cursor=result["next_cursor"],
+                    has_more=result["has_more"],
+                ).model_dump(mode="json")
+                await redis.setex(cache_key, ADMIN_PROXY_CACHE_TTL, _json_admin.dumps(serializable))
+                logger.debug("[ADMIN_PROXIES] cache SET ttl=%ds", ADMIN_PROXY_CACHE_TTL)
+        except Exception as exc:
+            logger.warning("[ADMIN_PROXIES] Redis недоступен при записи: %s", exc)
+
+    return result
+
+@router.post('/proxies/sync')
+async def sync_proxies_from_ipfoxy(
+    data: schemas.SyncProxiesRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    '''
+    Запускает Celery-таск полной синхронизации прокси из IPFoxy для указанного API ключа.
+    Обходит все страницы пагинации — импортирует ВСЕ прокси ключа.
+    '''
+    from backend.tasks.sync_tasks import sync_proxies_task
+
+    result = await db.execute(select(ApiKey).where(ApiKey.id == data.api_key_id, ApiKey.is_active.is_(True)))
+    api_key = result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail='API ключ не найден или неактивен')
+
+    task = sync_proxies_task.delay(
+        api_key_db_id=data.api_key_id,
+        owner_id=data.owner_id,
+    )
+    return {'status': 'queued', 'task_id': task.id, 'key_name': api_key.key_name}
+
 
 @router.get('/proxies/{proxy_id}', response_model=schemas.ProxyDetail)
 async def get_proxy_detail_admin(

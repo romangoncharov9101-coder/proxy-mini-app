@@ -198,3 +198,7 @@ class AppSettingsResponse(BaseModel):
 
 class AppSettingsUpdate(BaseModel):
     allowed_area_ids: Optional[str] = None
+
+class SyncProxiesRequest(BaseModel):
+    api_key_id: int
+    owner_id: Optional[int] = None
