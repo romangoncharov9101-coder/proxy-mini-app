@@ -825,6 +825,7 @@ let _adminCountrySearchTimeout = null;
 function openAdminMarket() {
     const overlay = document.getElementById('admin-market-overlay');
     if (overlay) overlay.classList.remove('hidden');
+    _initAdminMarketScroll();
     const container = document.getElementById('admin-countries-container');
     if (container && container.children.length === 0) {
         resetAndReloadAdminMarket();
@@ -927,17 +928,18 @@ function renderAdminMarketItems(items) {
     });
 }
 
-// Прокрутка маркета
-document.addEventListener('scroll', () => {
-    const overlay = document.getElementById('admin-market-overlay');
-    if (overlay && !overlay.classList.contains('hidden')) {
-        const scrolled = window.scrollY + window.innerHeight;
-        const total = document.documentElement.scrollHeight;
-        if (total - scrolled < 300) {
+// Прокрутка маркета — слушаем именно скролл-контейнер overlay, а не window
+function _initAdminMarketScroll() {
+    const scrollBox = document.querySelector('#admin-market-overlay .overflow-y-auto');
+    if (!scrollBox || scrollBox._adminScrollBound) return;
+    scrollBox._adminScrollBound = true;
+    scrollBox.addEventListener('scroll', () => {
+        const remaining = scrollBox.scrollHeight - scrollBox.scrollTop - scrollBox.clientHeight;
+        if (remaining < 300) {
             loadNextAdminMarketPage();
         }
-    }
-}, { passive: true });
+    }, { passive: true });
+}
 
 // Функция открытия модала выбора дней для покупки от имени админа
 // Переиспользует openDurationModal из user части (если доступна) или показывает заглушку
