@@ -439,23 +439,15 @@ async def get_all_proxies(
         proxy_status=proxy_status if proxy_status != 'all' else None,
     )
 
-    if use_cache:
-        try:
-            async with _AdminRedis.from_url(
-                _cfg_admin.REDIS_URL, decode_responses=True,
-                socket_connect_timeout=2, socket_timeout=2,
-            ) as redis:
-                serializable = schemas.ProxyPageResponse(
-                    items=[schemas.ProxyListItem.model_validate(p) for p in result["items"]],
-                    next_cursor=result["next_cursor"],
-                    has_more=result["has_more"],
-                ).model_dump(mode="json")
-                await redis.setex(cache_key, ADMIN_PROXY_CACHE_TTL, _json_admin.dumps(serializable))
-                logger.debug("[ADMIN_PROXIES] cache SET ttl=%ds", ADMIN_PROXY_CACHE_TTL)
-        except Exception as exc:
-            logger.warning("[ADMIN_PROXIES] Redis недоступен при записи: %s", exc)
-
-    return result
+    return await get_proxy_page(
+        db,
+        last_id=last_id,
+        limit=limit,
+        search=search,
+        key_id=key_id,
+        filter_owner_id=owner_id,
+        proxy_status=proxy_status if proxy_status != 'all' else None,
+    )
 
 @router.post('/proxies/sync')
 async def sync_proxies_from_ipfoxy(

@@ -270,49 +270,12 @@ async def get_my_proxies(
     Возвращает прокси текущего пользователя, отсортированные по id desc (новые первые).
     Первая страница без поиска кешируется в Redis на 15 минут.
     """
-    use_cache = (last_id is None and not search)
-    cache_key = f"user:proxies:{current_user.id}"
-
-    if use_cache:
-        try:
-            async with Redis.from_url(
-                settings.REDIS_URL, decode_responses=True,
-                socket_connect_timeout=2, socket_timeout=2,
-            ) as redis_client:
-                cached = await redis_client.get(cache_key)
-                if cached:
-                    logger.debug("[USER_PROXIES] cache HIT user_id=%s", current_user.id)
-                    return json.loads(cached)
-        except Exception as exc:
-            logger.warning("[USER_PROXIES] Redis недоступен при чтении: %s", exc)
-
-    result = await get_proxy_page(
+    return await get_proxy_page(
         db,
         key_id=current_user.api_key_id,
         last_id=last_id,
-        limit=limit,
         search=search,
     )
-
-    if use_cache:
-        try:
-            async with Redis.from_url(
-                settings.REDIS_URL, decode_responses=True,
-                socket_connect_timeout=2, socket_timeout=2,
-            ) as redis_client:
-                import json as _json
-                # Сериализуем: ProxyPageResponse содержит ORM-объекты, берём через схему
-                serializable = schemas.ProxyPageResponse(
-                    items=[schemas.ProxyListItem.model_validate(p) for p in result["items"]],
-                    next_cursor=result["next_cursor"],
-                    has_more=result["has_more"],
-                ).model_dump(mode="json")
-                await redis_client.setex(cache_key, PROXY_CACHE_TTL, _json.dumps(serializable))
-                logger.debug("[USER_PROXIES] cache SET user_id=%s ttl=%ds", current_user.id, PROXY_CACHE_TTL)
-        except Exception as exc:
-            logger.warning("[USER_PROXIES] Redis недоступен при записи: %s", exc)
-
-    return result
 
 @router.get("/proxies/{proxy_id}", response_model=schemas.ProxyDetail)
 async def get_proxy_detail(
