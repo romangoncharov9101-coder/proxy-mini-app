@@ -36,10 +36,10 @@ case "$APP_ROLE" in
     echo "[entrypoint] Применяем миграции Alembic..."
     alembic upgrade head
     echo "[entrypoint] Миграции применены. Запуск FastAPI..."
-    exec uvicorn backend.main:app --reload\
+    exec uvicorn backend.main:app \
       --host 0.0.0.0 \
       --port 8000 \
-      --workers 2 \
+      --workers 1 \
       --log-level warning \
       --no-access-log
     ;;

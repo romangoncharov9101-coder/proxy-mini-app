@@ -53,7 +53,7 @@ async function confirmExtendDays(days) {
 
         await res.json();
         smartCloseModal('days-option-modal');
-        resetAndReloadProxies();
+        // resetAndReloadProxies вызывается внутри showExtendSuccess/showPurchaseSuccess
         document.getElementById('extend-success-modal')?.classList.remove('hidden');
     } catch(e) {
         window.Telegram?.WebApp?.showAlert('Ошибка продления');

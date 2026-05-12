@@ -257,8 +257,6 @@ async def get_countries(
             "has_more": False,
         }
 
-PROXY_CACHE_TTL = 900  # 15 минут — совпадает с интервалом sync_proxies_task
-
 @router.get("/proxies", response_model=schemas.ProxyPageResponse)
 async def get_my_proxies(
     last_id: Optional[int] = Query(None, description="cursor — id последнего полученного прокси"),

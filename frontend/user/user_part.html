@@ -104,7 +104,8 @@ let _countrySearchTimeout = null;
 
 async function initUser() {
     await resetAndReloadProxies();
-    await resetAndReloadMarket();
+    // Маркет загружается лениво — только при первом переходе на вкладку,
+    // чтобы не слать лишние запросы при старте
 }
 
 function switchUserTab(tab) {

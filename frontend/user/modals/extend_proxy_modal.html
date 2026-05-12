@@ -161,7 +161,8 @@
             }
 
             if (typeof clearProxySelection === 'function') clearProxySelection();
-            if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
+            // resetAndReloadProxies вызывается внутри showPurchaseSuccess / showExtendSuccess —
+            // дублирующий вызов здесь убран намеренно, чтобы не слать двойной запрос на сервер
             if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
             if (typeof fetchUserProfile === 'function') fetchUserProfile(true);
         } catch(e) {

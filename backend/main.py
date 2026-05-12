@@ -15,8 +15,11 @@ LOG_DIR = os.getenv('LOG_DIR', '/app/logs')
 LOG_FILE = os.path.join(LOG_DIR, 'app.log')
 
 def setup_logging():
-    log_level = logging.DEBUG if settings.ENVIRONMENT != 'production' else logging.INFO
+    root_logger = logging.getLogger()
+    if root_logger.handlers:  # уже настроен — выходим
+        return
 
+    log_level = logging.DEBUG if settings.ENVIRONMENT != 'production' else logging.INFO
     formatter = logging.Formatter(
         fmt='%(asctime)s [%(levelname)s] %(name)s — %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
@@ -32,10 +35,8 @@ def setup_logging():
         backupCount=5,
         encoding='utf-8'
     )
-
     file_handler.setFormatter(formatter)
 
-    root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
     root_logger.addHandler(handler)
     root_logger.addHandler(file_handler)

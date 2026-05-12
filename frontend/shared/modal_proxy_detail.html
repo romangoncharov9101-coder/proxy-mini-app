@@ -319,8 +319,6 @@
                 body: JSON.stringify({ note })
             });
             if (!res.ok) throw new Error(res.status);
-            window.Telegram?.WebApp?.showAlert?.('Нотатку збережено!');
-            // Перезагружаем список прокси чтобы нотатка обновилась на карточке
             if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
             if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
         } catch(e) {
