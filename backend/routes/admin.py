@@ -19,11 +19,10 @@ from backend.database.models import (
 from backend.utils.security import require_admin
 from backend.utils.crypto import encrypt_data
 from backend.api_services.ipfoxy import IPFoxyService
-from backend.api_services.extend_service import extend_proxies_service
-from backend.database.models import AppSettings
 from backend.api_services.proxy_service import (
     get_proxy_page,
-    get_proxy_detail_for_admin
+    get_proxy_detail_for_admin,
+    extend_proxies_service,
 )
 
 router = APIRouter(prefix='/admin', tags=['Admin'])
@@ -69,8 +68,6 @@ async def get_api_keys(
     except Exception as exc:
         logger.error(f'[KEYS] ошибка сохранения баланса: {exc}')
 
-    # Запускаем синхронизацию всех прокси в фоне если кеш администратора пустой
-    # (первый заход или истёк TTL 30 мин)
     try:
         from redis.asyncio import Redis as _AdminSyncRedis
         from backend.utils.config import settings as _cfg_sync
@@ -81,7 +78,7 @@ async def get_api_keys(
             cache_exists = await _r.exists('admin:proxies:all')
         if not cache_exists:
             from backend.tasks.sync_tasks import sync_proxies_task
-            sync_proxies_task.delay()  # без api_key_db_id — синхронизирует все ключи
+            sync_proxies_task.delay()
             logger.info('[KEYS] Запущена фоновая синхронизация всех прокси для администратора')
     except Exception as _exc:
         logger.warning('[KEYS] Не удалось запустить sync_proxies_task: %s', _exc)
@@ -254,7 +251,6 @@ async def get_users(
     Поиск: по TG ID, username и first_name.
     Фильтрация: По API ключам.
     '''
-
     stmt = (
         select(User, ApiKey.key_name)
         .join(Whitelist, User.telegram_id == Whitelist.telegram_id)
@@ -349,7 +345,6 @@ async def block_user(
         await db.delete(wl_entry)
         logger.info('Запись удалена из whitelist для tg_id=%s', target_user.telegram_id)
 
-    # await db.delete(target_user)
     await db.commit()
     
     return None
@@ -378,7 +373,6 @@ async def assign_key_to_users(
         raise HTTPException(status_code=404, detail='Пользователи не найдены.')
 
     for u in target_users:
-        old_key = u.api_key_id
         u.api_key_id = data.key_id
 
     await db.commit()
@@ -405,14 +399,15 @@ async def get_all_proxies(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    '''
-    Все прокси системы с cursor-пагинацией.
-    Первая страница без фильтров кешируется в Redis на 15 минут.
-    '''
+    '''Все прокси системы с cursor-пагинацией.'''
     return await get_proxy_page(
         db,
         last_id=last_id,
+        limit=limit,
         search=search,
+        key_id=key_id,
+        filter_owner_id=owner_id,
+        proxy_status=proxy_status,
     )
 
 @router.post('/proxies/sync')
@@ -566,8 +561,6 @@ async def get_all_transactions(
     Включает telegram_id пользователя и название ключа.
     Сортировка: новые первые.
     '''
-    UserAlias = aliased(User)
-
     stmt = (
         select(Transaction, User.telegram_id, ApiKey.key_name)
         .outerjoin(User, Transaction.user_id == User.id)
@@ -589,7 +582,6 @@ async def get_all_transactions(
         stmt = stmt.where(User.telegram_id == user_id_filter)
 
     stmt = stmt.order_by(Transaction.id.desc())
-
     stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)
     rows = result.all()

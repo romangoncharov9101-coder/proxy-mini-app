@@ -267,8 +267,6 @@ function copyText(text) {
         document.execCommand('copy');
         document.body.removeChild(ta);
     });
-
-    window.Telegram?.WebApp?.showAlert?.('Скопировано!');
 }
 
 async function _doSetAutoExtendProxiesTab(proxyId, newValue) {

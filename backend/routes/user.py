@@ -17,12 +17,13 @@ from backend.database.models import User, Regions, Proxy, Transaction, Transacti
 from backend.utils.security import get_current_user
 from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
-from backend.api_services.extend_service import extend_proxies_service
 from backend.tasks.sync_tasks import ts_to_dt
 from backend.api_services.proxy_service import (
     get_proxy_page,
     get_proxy_detail_for_user,
-    toggle_auto_extend as proxy_set_auto_extend
+    toggle_auto_extend as proxy_set_auto_extend,
+    extend_proxies_service,
+    resolve_ipfoxy_ids,
 )
 
 router = APIRouter(prefix="/user", tags=["User"])
@@ -75,8 +76,6 @@ async def get_me(
             else:
                 current_balance = api_key.balance or Decimal("0.00")
 
-    # Запускаем синхронизацию прокси в фоне если у пользователя есть API ключ
-    # и кеш прокси пустой (первый заход или истёк TTL)
     if user.api_key_id:
         try:
             from redis.asyncio import Redis as _SyncRedis
@@ -266,7 +265,6 @@ async def get_my_proxies(
 ):
     """
     Возвращает прокси текущего пользователя, отсортированные по id desc (новые первые).
-    Первая страница без поиска кешируется в Redis на 15 минут.
     """
     return await get_proxy_page(
         db,
@@ -300,7 +298,6 @@ async def calculate_order_price(
         current_user.id, order_data.area_id, order_data.num, order_data.days,
     )
 
-
     service_data = await IPFoxyService.get_service_by_user(db, current_user)
     if not service_data:
         raise HTTPException(
@@ -309,25 +306,13 @@ async def calculate_order_price(
         )
     service, _ = service_data
 
-    ipfoxy_proxy_ids = None
+    ipfoxy_ids_str = None
     if order_data.proxy_ids:
-        if current_user.role == UserRole.admin:
-            stmt = select(Proxy).where(Proxy.id.in_(order_data.proxy_ids))
-        else:
-            stmt = select(Proxy).where(
-                Proxy.id.in_(order_data.proxy_ids),
-                Proxy.api_key_id == current_user.api_key_id,
-            )
-        result = await db.execute(stmt)
-        proxies_for_price = result.scalars().all()
-
-        ipfoxy_proxy_ids = [p.ipfoxy_proxy_id for p in proxies_for_price if p.ipfoxy_proxy_id]
-        if not ipfoxy_proxy_ids:
-            raise HTTPException(status_code=400, detail="Не удалось найти внешние ID для выбранных прокси")
-
+        # resolve_ipfoxy_ids уже возвращает готовую строку через запятую
+        ipfoxy_ids_str = await resolve_ipfoxy_ids(db, current_user, order_data.proxy_ids)
         logger.info(
-            "[CALC_PRICE] конвертация DB-ids=%s -> ipfoxy_ids=%s",
-            order_data.proxy_ids, ipfoxy_proxy_ids,
+            "[CALC_PRICE] конвертация DB-ids=%s -> ipfoxy_ids_str=%s",
+            order_data.proxy_ids, ipfoxy_ids_str,
         )
 
     try:
@@ -335,7 +320,7 @@ async def calculate_order_price(
             order_type=order_data.order_type,
             days=order_data.days,
             area_id=order_data.area_id,
-            proxy_ids=",".join(str(pid) for pid in ipfoxy_proxy_ids) if order_data.proxy_ids else None,
+            proxy_ids=ipfoxy_ids_str,
             num=order_data.num,
         )
         return {
@@ -459,10 +444,8 @@ async def update_proxy_note(
     Установить или очистить нотатку для прокси.
     Пользователь — только для своих прокси. Администратор — для любых.
     """
-    from backend.database.models import UserRole as _UserRole
-    from sqlalchemy import select as _select
-    stmt = _select(Proxy).where(Proxy.id == proxy_id)
-    if current_user.role != _UserRole.admin:
+    stmt = select(Proxy).where(Proxy.id == proxy_id)
+    if current_user.role != UserRole.admin:
         stmt = stmt.where(Proxy.api_key_id == current_user.api_key_id)
     result = await db.execute(stmt)
     proxy = result.scalar_one_or_none()

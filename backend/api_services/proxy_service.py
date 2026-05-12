@@ -5,8 +5,9 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy import select, func, String, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from decimal import Decimal
 
-from backend.database.models import Proxy, User, ApiKey, UserRole
+from backend.database.models import Proxy, User, ApiKey, UserRole, Transaction, TransactionType
 from backend.database import schemas
 from backend.api_services.ipfoxy import IPFoxyService
 
@@ -218,58 +219,169 @@ async def get_proxy_detail_for_admin(
         api_key_name=api_key_name,
     )
 
+
+async def resolve_ipfoxy_ids(
+        db: AsyncSession,
+        current_user: User,
+        proxy_ids: list[int]
+) -> str:
+    """
+    По списку внутренних DB-id прокси возвращает строку внешних ipfoxy-id
+    через запятую без пробелов (например: "101,202,303").
+    Для admin — без ограничения по ключу, для user — только свои прокси.
+    """
+    if current_user.role == UserRole.admin:
+        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
+    else:
+        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids), Proxy.api_key_id == current_user.api_key_id)
+
+    result = await db.execute(stmt)
+    proxies = result.scalars().all()
+
+    ipfoxy_ids = [p.ipfoxy_proxy_id for p in proxies if p.ipfoxy_proxy_id]
+    if not ipfoxy_ids:
+        raise HTTPException(status_code=400, detail='Не удалось найти внешние ID для выбранных прокси.')
+    return ",".join(str(pid) for pid in ipfoxy_ids)
+
+
 async def toggle_auto_extend(
         db: AsyncSession,
         proxy_ids: list[str],
         enable: bool,
         current_user: User
 ) -> dict:
-    ipfoxy_proxy_ids = None
     if isinstance(proxy_ids, int):
         proxy_ids = [proxy_ids]
 
-    if proxy_ids:
-        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
-        result = await db.execute(stmt)
-        proxies_for_toggle_auto = result.scalars().all()
+    if not proxy_ids:
+        raise HTTPException(status_code=400, detail='Список proxy_ids пуст')
 
-        ipfoxy_proxy_ids = [p.ipfoxy_proxy_id for p in proxies_for_toggle_auto if p.ipfoxy_proxy_id]
-        if not ipfoxy_proxy_ids:
-            raise HTTPException(status_code=400, detail="Не удалось найти внешние ID для выбранных прокси")
-        
+    stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
+    result = await db.execute(stmt)
+    proxies_for_toggle_auto = result.scalars().all()
+
+    # Используем resolve_ipfoxy_ids для получения строки внешних ID
+    str_ipfoxy_proxy_id = await resolve_ipfoxy_ids(db, current_user, proxy_ids)
+
     try:
         service_data = await IPFoxyService.get_service_by_user(db, current_user)
         if not service_data:
             raise HTTPException(status_code=400, detail='API ключ не привязан.')
         service, user_api_key = service_data
 
-        str_ipfoxy_proxy_id = ",".join(str(pid) for pid in ipfoxy_proxy_ids)
-
         code, msg = await service.automatic_renew(int(enable), str_ipfoxy_proxy_id)
         if code not in [0, 200]:
             raise HTTPException(status_code=code, detail=f'Ошибка сервиса IpFoxy: {msg}')
-        
+
         for proxy in proxies_for_toggle_auto:
             proxy.auto_extend = enable
         await db.commit()
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.info(f'[TOGGLE_AUTO] ошибка продления прокси: {exc}')
         raise HTTPException(status_code=500, detail=f'Ошибка продления прокси: {exc}')
 
     return {'proxy_id': proxy_ids, 'auto_extend': enable}
-        
 
-# async def set_auto_extend(
-#         db: AsyncSession,
-#         proxy_id: int,
-#         auto_extend: bool,
-#         current_user: User
-# ) -> dict:
-#     """Включить/выключить автопродление. Admin может менять любой прокси."""
-#     api_key_id = None if current_user.role == UserRole.admin else current_user.api_key_id
-#     proxy = await get_proxy_or_404(db, proxy_id, api_key_id=api_key_id)
-#     proxy.auto_extend_local = auto_extend
-#     await db.commit()
-#     logger.info(f'[AUTO_EXTEND] proxy_id={proxy_id} auto_extend={auto_extend} by user={current_user.id}')
-#     return {'proxy_id': proxy_id, 'auto_extend': auto_extend}
+
+async def extend_proxies_service(
+        db: AsyncSession,
+        current_user: User,
+        proxy_ids: list[int],
+        days: int
+) -> dict:
+    if not proxy_ids:
+        raise HTTPException(status_code=400, detail="Список proxy_ids пуст")
+    if days < 1:
+        raise HTTPException(status_code=400, detail="days должен быть >= 1")
+
+    logger.info(f'[EXTEND] user_id={current_user.id} proxy_ids={proxy_ids} days={days}')
+
+    if current_user.role == UserRole.admin:
+        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
+    else:
+        stmt = select(Proxy).where(
+            Proxy.id.in_(proxy_ids),
+            Proxy.api_key_id == current_user.api_key_id,
+        )
+
+    result = await db.execute(stmt)
+    proxies = result.scalars().all()
+
+    if not proxies:
+        raise HTTPException(status_code=404, detail='Прокси не найдены или у вас нет доступа.')
+
+    if current_user.role != UserRole.admin and len(proxies) != len(proxy_ids):
+        raise HTTPException(status_code=403, detail='Некоторые прокси не найдены или принадлежат другому пользователю.')
+
+    service_data = await IPFoxyService.get_service_by_user(db, current_user)
+    if not service_data:
+        raise HTTPException(status_code=400, detail='К аккаунту не привязан активный АПИ ключ. Обратитесь к администратору.')
+    service, user_api_key = service_data
+
+    # resolve_ipfoxy_ids возвращает строку через запятую
+    proxy_ids_str = await resolve_ipfoxy_ids(db, current_user, proxy_ids)
+    ipfoxy_ids = [int(x) for x in proxy_ids_str.split(',')]
+
+    try:
+        total_cost: Decimal = await service.get_order_price(order_type='EXTEND', days=days, proxy_ids=ipfoxy_ids)
+    except Exception as exc:
+        logger.error(f'[EXTEND] ошибка расчета цены: {exc}')
+        raise HTTPException(status_code=500, detail='Ошибка при расчете стоимости продления.')
+
+    current_balance: Decimal = user_api_key.balance or Decimal('0.00')
+    if current_balance < total_cost:
+        raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD, требуется: {total_cost} USD')
+
+    order_id = ''
+    try:
+        order_id = await service.renew_proxy(proxy_ids=proxy_ids_str, days=days)
+    except Exception as exc:
+        logger.error(f'[EXTEND] ошибка renew_proxy: {exc}')
+        raise HTTPException(status_code=500, detail=f'Ошибка продления прокси: {exc}')
+
+    now = datetime.now(timezone.utc)
+    for proxy in proxies:
+        old_expires = proxy.expires_at
+        if old_expires and old_expires.tzinfo is None:
+            old_expires = old_expires.replace(tzinfo=timezone.utc)
+        if old_expires and old_expires > now:
+            proxy.expires_at = old_expires + timedelta(days=days)
+        else:
+            proxy.expires_at = now + timedelta(days=days)
+            proxy.renewal_at = now
+
+    try:
+        new_balance = await service.get_balance()
+        user_api_key.balance = new_balance
+    except Exception as exc:
+        logger.warning(f'[EXTEND] не удалось обновить баланс: {exc}')
+        user_api_key.balance = current_balance - total_cost
+
+    renew_order_id = None
+    if isinstance(order_id, dict):
+        renew_order_id = order_id.get('data', {}).get('order_id')
+    elif order_id:
+        renew_order_id = str(order_id)
+
+    tx = Transaction(
+        user_id=current_user.id,
+        order_id=renew_order_id,
+        api_key_id=user_api_key.id,
+        type=TransactionType.extend,
+        amount=-total_cost,
+        description=f'Продление {len(proxies)} прокси на {days} дн. ({renew_order_id})',
+    )
+    db.add(tx)
+    await db.commit()
+
+    logger.info(f'[EXTEND] OK user_id={current_user.id} proxies={len(proxies)} days={days} cost={total_cost}')
+    return {
+        'status': 'success',
+        'extended': len(proxies),
+        'days': days,
+        'total_cost': str(total_cost),
+        'order_id': renew_order_id
+    }
