@@ -142,8 +142,13 @@ function renderProxyItems(items) {
                     </div>
                 </div>
 
-                <div class="shrink-0 bg-black text-white px-2 py-1 text-[10px] font-black uppercase italic">
-                    ${(p.country_code || '??').toUpperCase()}
+                <div class="shrink-0 flex items-center gap-1.5">
+                    <img src="https://flagcdn.com/w40/${(p.country_code || 'un').toLowerCase()}.png"
+                        class="w-6 h-4 border border-black object-cover shrink-0"
+                        onerror="this.src='https://placehold.co/40x30?text=?'">
+                    <div class="bg-black text-white px-2 py-1 text-[10px] font-black uppercase italic">
+                        ${(p.country_code || '??').toUpperCase()}
+                    </div>
                 </div>
             </div>
 
@@ -262,6 +267,8 @@ function copyText(text) {
         document.execCommand('copy');
         document.body.removeChild(ta);
     });
+
+    window.Telegram?.WebApp?.showAlert?.('Скопировано!');
 }
 
 async function _doSetAutoExtendProxiesTab(proxyId, newValue) {

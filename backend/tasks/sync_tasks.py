@@ -1,23 +1,138 @@
 import asyncio
+import json
 import logging
 import logging.handlers
 import os
-from celery import shared_task
-from sqlalchemy import select
-from decimal import Decimal, InvalidOperation
-from sqlalchemy.sql import func
-from backend.database.database import AssyncSessionLocal
-from backend.database.models import Regions, ApiKey
-from backend.api_services.ipfoxy import IPFoxyService
-
-import json
 from datetime import datetime, timezone
-from backend.database.models import Proxy, Regions
+from decimal import Decimal, InvalidOperation
+
+from celery import shared_task
 from redis.asyncio import Redis
-from backend.utils.config import settings as cfg
+from sqlalchemy import select
+from sqlalchemy.sql import func
+
+from backend.api_services.ipfoxy import IPFoxyService
+from backend.database.database import AssyncSessionLocal
+from backend.database.models import ApiKey, Proxy, Regions
 from backend.utils.check_location import check_proxy_country_with_ip_api
+from backend.utils.config import settings as cfg
+from backend.utils.config import settings as cfg
 
 logger = logging.getLogger('celery.tasks')
+
+
+@shared_task(
+    name='backend.tasks.sync_tasks.activate_proxies_task',
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+    soft_time_limit=360,
+    time_limit=420,
+)
+def activate_proxies_task(self, order_id: str, user_id: int, api_key_id: int,
+                           expected_country_code: str, area_id: str, days: int):
+    """
+    Celery-задача: ждёт активации прокси у провайдера и сохраняет в БД.
+    Вызывается сразу после успешной покупки через purchase_proxy endpoint.
+    """
+    logger.info('[ACTIVATE] Задача запущена order_id=%s user_id=%s', order_id, user_id)
+
+    async def logic():
+        async with AssyncSessionLocal() as db:
+            try:
+                service_data = await IPFoxyService.get_service_by_key_id(db, api_key_id)
+                if not service_data:
+                    logger.error('[ACTIVATE] order_id=%s — API ключ id=%s не найден', order_id, api_key_id)
+                    return
+
+                service, _ = service_data
+
+                order_details = await service.get_order_information(order_id)
+                order_data_ids = order_details.get('data', {}).get('proxy_ids', [])
+                proxy_ids_str = ','.join(str(pid) for pid in order_data_ids) if order_data_ids else None
+
+                if not proxy_ids_str:
+                    logger.error('[ACTIVATE] order_id=%s — proxy_ids не найдены: %s', order_id, order_details)
+                    return
+
+                proxies_data = []
+                for attempt in range(1, 21):
+                    await asyncio.sleep(15)
+                    proxies_data = await service.get_proxies_list(1, 50, proxy_ids_str)
+                    if proxies_data:
+                        logger.info('[ACTIVATE] order_id=%s — прокси готовы на попытке %d', order_id, attempt)
+                        break
+                    logger.warning('[ACTIVATE] order_id=%s — попытка %d/20, прокси ещё не готовы', order_id, attempt)
+
+                if not proxies_data:
+                    logger.error('[ACTIVATE] order_id=%s — прокси не появились за 5 минут!', order_id)
+                    return
+
+                added_count = 0
+                for p in proxies_data:
+                    try:
+                        proxy_public_ip = p.get('public_ip') or p.get('host') or p.get('server')
+                        try:
+                            checked_location, location_match = await check_proxy_country_with_ip_api(
+                                ip_or_host=proxy_public_ip,
+                                expected_country_code=expected_country_code,
+                            )
+                        except Exception as loc_exc:
+                            logger.warning('[ACTIVATE] Ошибка проверки IP %s: %s', proxy_public_ip, loc_exc)
+                            checked_location, location_match = 'Error', False
+
+                        new_proxy = Proxy(
+                            owner_id=user_id,
+                            api_key_id=api_key_id,
+                            ipfoxy_proxy_id=str(p.get('id') or p.get('proxy_id')),
+                            ipfoxy_order_id=str(order_id),
+                            host=p.get('host') or p.get('server'),
+                            public_ip=p.get('public_ip'),
+                            port=int(p.get('port')),
+                            username=p.get('user') or p.get('username'),
+                            password=p.get('password'),
+                            type=p.get('type'),
+                            area_id=str(area_id),
+                            country_code=expected_country_code,
+                            purchased_at=ts_to_dt(p.get('buy_time')),
+                            expires_at=ts_to_dt(p.get('expire_time')),
+                            checked_location=checked_location,
+                            location_match=location_match,
+                            auto_extend=True,
+                            ip_version=p.get('ip_version'),
+                            ip_type=p.get('ip_type'),
+                        )
+                        db.add(new_proxy)
+                        added_count += 1
+                    except Exception as proxy_exc:
+                        logger.error('[ACTIVATE] Ошибка подготовки прокси: %s', proxy_exc, exc_info=True)
+                        continue
+
+                await db.commit()
+                logger.info('[ACTIVATE] order_id=%s — %d прокси сохранены', order_id, added_count)
+
+                try:
+                    async with Redis.from_url(
+                        cfg.REDIS_URL, decode_responses=True,
+                        socket_connect_timeout=2, socket_timeout=2,
+                    ) as redis_inv:
+                        await redis_inv.delete(f'user:proxies:{user_id}')
+                        await redis_inv.delete('admin:proxies:all')
+                        logger.debug('[ACTIVATE] Redis-кеш инвалидирован user_id=%s', user_id)
+                except Exception as exc:
+                    logger.warning('[ACTIVATE] Не удалось инвалидировать Redis-кеш: %s', exc)
+
+            except Exception as exc:
+                logger.error('[ACTIVATE] order_id=%s — критическая ошибка: %s', order_id, exc, exc_info=True)
+                await db.rollback()
+                raise
+
+    try:
+        return run_async(logic())
+    except Exception as exc:
+        logger.error('[ACTIVATE] Неперехваченная ошибка: %s', exc, exc_info=True)
+        raise self.retry(exc=exc)
+
 
 def run_async(coro):
     """Запускает async coroutine в sync-контексте Celery воркера."""
