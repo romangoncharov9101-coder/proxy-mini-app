@@ -19,10 +19,11 @@ from backend.utils.config import settings
 from backend.api_services.ipfoxy import IPFoxyService
 from backend.api_services.extend_service import extend_proxies_service
 from backend.utils.check_location import check_proxy_country_with_ip_api
+from backend.tasks.sync_tasks import ts_to_dt
 from backend.api_services.proxy_service import (
     get_proxy_page,
     get_proxy_detail_for_user,
-    set_auto_extend as proxy_set_auto_extend
+    toggle_auto_extend as proxy_set_auto_extend
 )
 
 router = APIRouter(prefix="/user", tags=["User"])
@@ -272,7 +273,7 @@ async def get_my_proxies(
     """
     return await get_proxy_page(
         db,
-        key_id=current_user.api_key_id,
+        user_api_key_id=current_user.api_key_id,
         last_id=last_id,
         search=search,
     )
@@ -302,6 +303,7 @@ async def calculate_order_price(
         current_user.id, order_data.area_id, order_data.num, order_data.days,
     )
 
+
     service_data = await IPFoxyService.get_service_by_user(db, current_user)
     if not service_data:
         raise HTTPException(
@@ -317,7 +319,7 @@ async def calculate_order_price(
         else:
             stmt = select(Proxy).where(
                 Proxy.id.in_(order_data.proxy_ids),
-                Proxy.owner_id == current_user.id,
+                Proxy.api_key_id == current_user.api_key_id,
             )
         result = await db.execute(stmt)
         proxies_for_price = result.scalars().all()
@@ -479,7 +481,6 @@ async def activate_proxies_background(
             added_count = 0
             for p in proxies_data:
                 try:
-                    raw_expire = p.get("expire_time")
                     proxy_public_ip = p.get("public_ip") or p.get("host") or p.get("server")
 
                     try:
@@ -504,11 +505,11 @@ async def activate_proxies_background(
                         type=p.get("type"),
                         area_id=str(area_id),
                         country_code=expected_country_code,
-                        expires_at=datetime.fromtimestamp(int(raw_expire), tz=timezone.utc) if raw_expire else None,
+                        purchased_at=ts_to_dt(p.get('buy_time')),
+                        expires_at=ts_to_dt(p.get('expire_time')),
                         checked_location=checked_location,
                         location_match=location_match,
-                        auto_extend=False,
-                        auto_extend_local=False,
+                        auto_extend=True,
                         ip_version=p.get("ip_version"),
                         ip_type=p.get("ip_type"),
                     )
@@ -550,6 +551,32 @@ async def set_auto_extend(
     """
     logger.info("[AUTO_EXTEND] user_id=%s proxy_id=%s → %s", current_user.id, proxy_id, data.auto_extend)
     return await proxy_set_auto_extend(db, proxy_id, data.auto_extend, current_user)
+
+@router.patch("/proxies/{proxy_id}/note")
+async def update_proxy_note(
+    proxy_id: int,
+    data: schemas.ProxyNoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Установить или очистить нотатку для прокси.
+    Пользователь — только для своих прокси. Администратор — для любых.
+    """
+    from backend.database.models import UserRole as _UserRole
+    from sqlalchemy import select as _select
+    stmt = _select(Proxy).where(Proxy.id == proxy_id)
+    if current_user.role != _UserRole.admin:
+        stmt = stmt.where(Proxy.api_key_id == current_user.api_key_id)
+    result = await db.execute(stmt)
+    proxy = result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail='Прокси не найден')
+    note_val = (data.note or '').strip() or None
+    proxy.note = note_val
+    await db.commit()
+    logger.info("[PROXY_NOTE] proxy_id=%s user_id=%s note=%s", proxy_id, current_user.id, note_val)
+    return {'proxy_id': proxy_id, 'note': note_val}
 
 @router.post('/proxies/extend')
 async def extend_proxies(

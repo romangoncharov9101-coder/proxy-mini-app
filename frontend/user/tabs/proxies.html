@@ -112,6 +112,10 @@ function renderProxyItems(items) {
         }
 
         const expiresStr = expiresDate ? expiresDate.toLocaleDateString('ru-RU') : '—';
+        const connStr = `${p.type}://${p.host}:${p.port}:${p.username || ''}:${p.password || ''}`;
+        const noteHtml = p.note
+            ? `<div class="text-[9px] font-mono text-gray-500 italic truncate mt-0.5">📝 ${p.note}</div>`
+            : '';
 
         const el = document.createElement('div');
         el.className = `group border-2 ${isUrgent ? 'border-yellow-500' : (isExpired || !isActive ? 'border-black opacity-80' : 'border-black')} 
@@ -126,7 +130,7 @@ function renderProxyItems(items) {
                         </div>
                     </div>
 
-                    <div class="min-w-0 cursor-pointer" onclick="_onProxyCardBodyClick(${p.id}, event)">
+                    <div class="min-w-0 cursor-pointer flex-1" onclick="_onProxyCardBodyClick(${p.id}, event)">
                         <div class="flex items-center gap-2">
                             <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
                             <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
@@ -134,6 +138,7 @@ function renderProxyItems(items) {
                         <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
                             ${p.type} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
                         </div>
+                        ${noteHtml}
                     </div>
                 </div>
 
@@ -144,7 +149,7 @@ function renderProxyItems(items) {
 
             <div class="border-t border-black/10 mx-3"></div>
 
-            <div class="p-3 pt-2 flex items-center justify-between">
+            <div class="p-3 pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div class="flex flex-col cursor-pointer" onclick="_onProxyCardBodyClick(${p.id}, event)">
                     <span class="text-[8px] font-black text-gray-400 uppercase leading-none mb-1">Срок действия:</span>
                     <span class="text-[10px] font-black ${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : 'text-black')}">
@@ -152,14 +157,40 @@ function renderProxyItems(items) {
                     </span>
                 </div>
 
-                <button onclick="event.stopPropagation(); openExtendModal([${p.id}])"
-                    class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
-                    + ПРОДЛИТЬ
-                </button>
+                <div class="flex items-center gap-2">
+                    <!-- Переключатель автопродления -->
+                    <span id="ae-saving-${p.id}" class="text-[8px] font-black text-gray-400 hidden">...</span>
+                    <button title="Автопродление"
+                        id="btn-auto-extend-${p.id}"
+                        class="border-2 border-black px-2 py-1.5 text-[9px] font-black transition-all ${p.auto_extend ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}">
+                        ♻ ${p.auto_extend ? 'АВТО ON' : 'АВТО OFF'}
+                    </button>
+
+                    <!-- Копировать строку подключения -->
+                    <button onclick="event.stopPropagation(); copyText('${connStr.replace(/'/g, "\\'")}')"
+                        title="Копировать строку подключения"
+                        class="border-2 border-black px-2 py-1.5 text-[9px] font-black hover:bg-black hover:text-white transition-all">
+                        ⧉
+                    </button>
+
+                    <button onclick="event.stopPropagation(); openExtendModal([${p.id}])"
+                        class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
+                        + ПРОДЛИТЬ
+                    </button>
+                </div>
             </div>
         `;
 
         container.appendChild(el);
+
+        // Привязываем onclick после добавления в DOM — иначе атрибут onclick в шаблоне не обновляется
+        const aeBtn = el.querySelector(`#btn-auto-extend-${p.id}`);
+        if (aeBtn) {
+            aeBtn.onclick = (event) => {
+                event.stopPropagation();
+                setAutoExtend(p.id, !p.auto_extend);
+            };
+        }
     });
 }
 
@@ -256,32 +287,73 @@ async function _doSetAutoExtendProxiesTab(proxyId, newValue) {
 }
 
 async function setAutoExtend(proxyId, newValue) {
-    if (!newValue) {
-        await _doSetAutoExtendProxiesTab(proxyId, false);
-        return;
-    }
-    let monthlyPrice = null;
+    const btn = document.querySelector(`#btn-auto-extend-${proxyId}`);
+    const saving = document.getElementById('ae-saving-' + proxyId);
+
+    // 1. Показываем лоадер сразу
+    if (saving) saving.classList.remove('hidden');
+
     try {
+        // Если выключаем - просто шлем запрос
+        if (!newValue) {
+            await _doSetAutoExtendProxiesTab(proxyId, false);
+            updateAutoExtendBtnUI(proxyId, false);
+            return;
+        }
+
+        // Если включаем - запрашиваем цену и открываем модалку
+        let monthlyPrice = null;
         const priceRes = await fetch('/api/v1/user/calculate-price', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
-            body: JSON.stringify({ order_type: 'RENEW', proxy_ids: [proxyId], days: 30 })
+            body: JSON.stringify({ order_type: 'EXTEND', proxy_ids: [proxyId], days: 30 })
         });
+
         if (priceRes.ok) {
             const pd = await priceRes.json();
             monthlyPrice = pd.order_price ?? null;
         }
-    } catch (_) {}
 
-    window._autoExtendConfirmedCallback = async (confirmedProxyId) => {
-        await _doSetAutoExtendProxiesTab(confirmedProxyId, true);
-        window._autoExtendConfirmedCallback = null;
-    };
+        // Назначаем колбэк для модалки подтверждения
+        window._autoExtendConfirmedCallback = async (confirmedProxyId) => {
+            await _doSetAutoExtendProxiesTab(confirmedProxyId, true);
+            updateAutoExtendBtnUI(confirmedProxyId, true);
+            window._autoExtendConfirmedCallback = null;
+        };
 
-    if (typeof window.openAutoExtendConfirmModal === 'function') {
-        window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
-    } else {
-        await _doSetAutoExtendProxiesTab(proxyId, true);
+        if (typeof window.openAutoExtendConfirmModal === 'function') {
+            window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
+        } else {
+            // Если модалки нет, просто активируем
+            await _autoExtendConfirmedCallback(proxyId);
+        }
+
+    } catch (e) {
+        console.error(e);
+        window.Telegram?.WebApp?.showAlert?.('ОШИБКА ПРИ ОБРАБОТКЕ');
+    } finally {
+        if (saving) saving.classList.add('hidden');
     }
+}
+
+// Обновление UI кнопки автопродления — включая onclick, чтобы следующий клик был корректным
+function updateAutoExtendBtnUI(proxyId, isActive) {
+    const btn = document.querySelector(`#btn-auto-extend-${proxyId}`);
+    if (!btn) return;
+
+    if (isActive) {
+        btn.classList.add('bg-black', 'text-white');
+        btn.classList.remove('bg-white', 'hover:bg-zinc-100');
+        btn.textContent = `♻ АВТО ON`;
+    } else {
+        btn.classList.remove('bg-black', 'text-white');
+        btn.classList.add('bg-white', 'hover:bg-zinc-100');
+        btn.textContent = `♻ АВТО OFF`;
+    }
+
+    btn.onclick = (event) => {
+        event.stopPropagation();
+        setAutoExtend(proxyId, !isActive);
+    };
 }
 </script>

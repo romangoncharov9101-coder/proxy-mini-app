@@ -317,6 +317,7 @@ async def add_to_whitelist(
         telegram_id=data.telegram_id,
         role=data.role,
         added_by=admin.telegram_id,
+        pending_api_key_id=data.pending_api_key_id,
     )
     db.add(entry)
     await db.commit()
@@ -393,9 +394,6 @@ async def assign_key_to_users(
         'key_name': api_key.key_name,
     }
 
-ADMIN_PROXY_CACHE_KEY = 'admin:proxies:all'
-ADMIN_PROXY_CACHE_TTL = 900  # 15 минут
-
 @router.get('/proxies', response_model=schemas.ProxyPageResponse)
 async def get_all_proxies(
     last_id:      Optional[int] = Query(None),
@@ -411,42 +409,10 @@ async def get_all_proxies(
     Все прокси системы с cursor-пагинацией.
     Первая страница без фильтров кешируется в Redis на 15 минут.
     '''
-    from backend.utils.config import settings as _cfg_admin
-
-    use_cache = (last_id is None and not search and not key_id and not owner_id and not proxy_status)
-    cache_key = ADMIN_PROXY_CACHE_KEY
-
-    if use_cache:
-        try:
-            async with _AdminRedis.from_url(
-                _cfg_admin.REDIS_URL, decode_responses=True,
-                socket_connect_timeout=2, socket_timeout=2,
-            ) as redis:
-                cached = await redis.get(cache_key)
-                if cached:
-                    logger.debug("[ADMIN_PROXIES] cache HIT")
-                    return _json_admin.loads(cached)
-        except Exception as exc:
-            logger.warning("[ADMIN_PROXIES] Redis недоступен при чтении: %s", exc)
-
-    result = await get_proxy_page(
-        db,
-        last_id=last_id,
-        limit=limit,
-        search=search,
-        key_id=key_id,
-        filter_owner_id=owner_id,
-        proxy_status=proxy_status if proxy_status != 'all' else None,
-    )
-
     return await get_proxy_page(
         db,
         last_id=last_id,
-        limit=limit,
         search=search,
-        key_id=key_id,
-        filter_owner_id=owner_id,
-        proxy_status=proxy_status if proxy_status != 'all' else None,
     )
 
 @router.post('/proxies/sync')
@@ -484,6 +450,24 @@ async def get_proxy_detail_admin(
     Включает данные о владельце и о ключе.
     '''
     return await get_proxy_detail_for_admin(db, proxy_id)
+
+@router.patch('/proxies/{proxy_id}/note')
+async def update_proxy_note_admin(
+    proxy_id: int,
+    data: schemas.ProxyNoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Установить или очистить нотатку для прокси (администратор)."""
+    result = await db.execute(select(Proxy).where(Proxy.id == proxy_id))
+    proxy = result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(status_code=404, detail='Прокси не найден')
+    note_val = (data.note or '').strip() or None
+    proxy.note = note_val
+    await db.commit()
+    logger.info('[PROXY_NOTE_ADMIN] proxy_id=%s note=%s', proxy_id, note_val)
+    return {'proxy_id': proxy_id, 'note': note_val}
 
 @router.patch('/proxies/{proxy_id}/active')
 async def set_proxy_active_admin(

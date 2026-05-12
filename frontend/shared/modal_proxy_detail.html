@@ -87,7 +87,7 @@
             <div class=\"text-[8px] font-mono normal-case bg-zinc-50 p-2 break-all leading-relaxed\">${p.host}:${p.port}:${p.username || ''}:${p.password || ''}</div>
             <button onclick=\"copyText('${esc(p.host)}:${esc(String(p.port))}:${esc(p.username||'')}:${esc(p.password||'')}')\"
                 class=\"mt-2 w-full border-2 border-black py-2 text-[9px] font-black hover:bg-black hover:text-white transition-all\">
-                КОПИРОВАТЬ IP:PORT:ЛОГИН:ПАРОЛЬ
+                КОПИРОВАТЬ
             </button>
         </div>` : '';
 
@@ -149,6 +149,19 @@
                 Страна прокси: ${p.checked_location || '—'}
                 (${p.location_match ? 'совпадает' : 'не совпадает'})
             </div>
+        </div>
+
+        <!-- Нотатка -->
+        <div class="border-2 border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            <div class="text-[9px] font-black text-gray-400 mb-2">НОТАТКА</div>
+            <textarea id="proxy-note-input-${p.id}"
+                placeholder="Введите нотатку..."
+                class="w-full border-2 border-black p-2 text-[10px] font-mono normal-case resize-none focus:outline-none bg-zinc-50"
+                rows="2">${p.note || ''}</textarea>
+            <button onclick="_saveProxyNote(${p.id})"
+                class="mt-2 w-full border-2 border-black py-2 text-[9px] font-black hover:bg-black hover:text-white transition-all">
+                СОХРАНИТЬ НОТАТКУ
+            </button>
         </div>
 
         ${adminSystemBlock}
@@ -292,5 +305,26 @@
     function togglePwd(proxyId, pwd) {
         const el = document.getElementById('pwd-' + proxyId);
         if (el) el.innerText = el.innerText === '••••••••' ? (pwd || '') : '••••••••';
+    }
+
+    async function _saveProxyNote(proxyId) {
+        const textarea = document.getElementById('proxy-note-input-' + proxyId);
+        if (!textarea) return;
+        const note = textarea.value.trim() || null;
+        const apiBase = _proxyDetailCtx.isAdmin ? '/api/v1/admin/proxies' : '/api/v1/user/proxies';
+        try {
+            const res = await fetch(`${apiBase}/${proxyId}/note`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({ note })
+            });
+            if (!res.ok) throw new Error(res.status);
+            window.Telegram?.WebApp?.showAlert?.('Нотатку збережено!');
+            // Перезагружаем список прокси чтобы нотатка обновилась на карточке
+            if (typeof resetAndReloadProxies === 'function') resetAndReloadProxies();
+            if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
+        } catch(e) {
+            window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ НОТАТКИ');
+        }
     }
 </script>

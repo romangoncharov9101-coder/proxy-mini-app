@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models import Proxy, User, ApiKey, UserRole
 from backend.database import schemas
+from backend.api_services.ipfoxy import IPFoxyService
 
 logger = logging.getLogger('services.proxy')
 
 def _build_proxy_list_stmt(
         *,
-        owner_id: Optional[int] = None,
+        user_api_key_id: Optional[int] = None,
         last_id: Optional[int] = None,
         limit: int = 20,
         search: Optional[str] = None,
@@ -23,32 +24,32 @@ def _build_proxy_list_stmt(
 ):
     """
     Строит SQLAlchemy-statement для выборки прокси.
-    owner_id     - ID текущего пользователя (для user-роута);
-                   None означает "все прокси" (для admin-роута).
-    owner_search - поиск по username/first_name/telegram_id владельца
-                   ИЛИ key_name/api_id ключа (только для admin-роута).
+    user_api_key_id - api_key_id текущего пользователя (для user-роута);
+                      None означает "все прокси" (для admin-роута).
+    owner_search    - поиск по username/first_name/telegram_id владельца
+                      ИЛИ key_name/api_id ключа (только для admin-роута).
     """
     now = datetime.now(timezone.utc)
-    expiration_threshold = now - timedelta(days=5)
+    expiration_threshold = now - timedelta(days=2)
 
-    if owner_id is None:
+    if user_api_key_id is None:
         stmt = (
             select(Proxy)
             .outerjoin(User, Proxy.owner_id == User.id)
             .outerjoin(ApiKey, Proxy.api_key_id == ApiKey.id)
             .where(Proxy.expires_at > expiration_threshold)
-            .order_by(Proxy.id.desc())
+            .order_by(Proxy.purchased_at.desc(), Proxy.id.desc())
         )
     else:
         stmt = (
             select(Proxy)
             .where(Proxy.expires_at > expiration_threshold)
-            .order_by(Proxy.id.desc())
+            .order_by(Proxy.purchased_at.desc(), Proxy.id.desc())
         )
 
-    if owner_id is not None:
+    if user_api_key_id is not None:
         stmt = stmt.where(
-            Proxy.owner_id == owner_id,
+            Proxy.api_key_id == user_api_key_id,
             Proxy.is_active == True,
         )
 
@@ -59,8 +60,9 @@ def _build_proxy_list_stmt(
             func.cast(Proxy.ipfoxy_proxy_id, String).ilike(q),
             func.cast(Proxy.ipfoxy_order_id, String).ilike(q),
             Proxy.host.ilike(q),
+            Proxy.note.ilike(q),
         ]
-        if owner_id is None:
+        if user_api_key_id is None:
             conditions += [
                 User.username.ilike(q),
                 User.first_name.ilike(q),
@@ -93,7 +95,7 @@ def _build_proxy_list_stmt(
 async def get_proxy_page(
         db: AsyncSession,
         *,
-        owner_id: Optional[int] = None,
+        user_api_key_id: Optional[int] = None,
         last_id: Optional[int] = None,
         limit: int = 20,
         search: Optional[str] = None,
@@ -103,7 +105,7 @@ async def get_proxy_page(
 ) -> dict:
     """Возвращает страницу прокси с cursor-пагинацией."""
     stmt = _build_proxy_list_stmt(
-        owner_id=owner_id,
+        user_api_key_id=user_api_key_id,
         last_id=last_id,
         limit=limit,
         search=search,
@@ -118,7 +120,7 @@ async def get_proxy_page(
     items = rows[:limit]
     next_cursor = items[-1].id if (has_more and items) else None
 
-    logger.debug(f'[PROXY_PAGE] owner_id={owner_id} returned={len(items)} has_more={has_more}')
+    logger.debug(f'[PROXY_PAGE] user_api_key_id={user_api_key_id} returned={len(items)} has_more={has_more}')
     return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
 
 
@@ -144,29 +146,29 @@ def build_proxy_detail(
         ip_version=proxy.ip_version,
         country_code=proxy.country_code,
         area_id=proxy.area_id,
-        auto_extend=bool(proxy.auto_extend_local or False),
+        auto_extend=proxy.auto_extend,
         is_active=proxy.is_active,
         purchased_at=proxy.purchased_at,
         expires_at=proxy.expires_at,
         renewal_at=proxy.renewal_at,
         checked_location=proxy.checked_location,
         location_match=proxy.location_match,
+        note=proxy.note,
         owner_username=owner_username,
         owner_tg_id=owner_tg_id,
         api_key_name=api_key_name,
     )
 
-
 async def get_proxy_or_404(
         db: AsyncSession,
         proxy_id: int,
         *,
-        owner_id: Optional[int] = None,
+        api_key_id: Optional[int] = None,
 ) -> Proxy:
     """Загружаем прокси, кидает 404 если не найден."""
     stmt = select(Proxy).where(Proxy.id == proxy_id)
-    if owner_id:
-        stmt = stmt.where(Proxy.owner_id == owner_id)
+    if api_key_id:
+        stmt = stmt.where(Proxy.api_key_id == api_key_id)
 
     result = await db.execute(stmt)
     proxy = result.scalar_one_or_none()
@@ -182,7 +184,7 @@ async def get_proxy_detail_for_user(
         current_user: User
 ) -> schemas.ProxyDetail:
     """Детальная карточка прокси для обычного пользователя."""
-    proxy = await get_proxy_or_404(db, proxy_id, owner_id=current_user.id)
+    proxy = await get_proxy_or_404(db, proxy_id, api_key_id=current_user.api_key_id)
     return build_proxy_detail(proxy)
 
 
@@ -216,17 +218,58 @@ async def get_proxy_detail_for_admin(
         api_key_name=api_key_name,
     )
 
-
-async def set_auto_extend(
+async def toggle_auto_extend(
         db: AsyncSession,
-        proxy_id: int,
-        auto_extend: bool,
+        proxy_ids: list[str],
+        enable: bool,
         current_user: User
 ) -> dict:
-    """Включить/выключить автопродление. Admin может менять любой прокси."""
-    owner_id = None if current_user.role == UserRole.admin else current_user.id
-    proxy = await get_proxy_or_404(db, proxy_id, owner_id=owner_id)
-    proxy.auto_extend_local = auto_extend
-    await db.commit()
-    logger.info(f'[AUTO_EXTEND] proxy_id={proxy_id} auto_extend={auto_extend} by user={current_user.id}')
-    return {'proxy_id': proxy_id, 'auto_extend': auto_extend}
+    ipfoxy_proxy_ids = None
+    if isinstance(proxy_ids, int):
+        proxy_ids = [proxy_ids]
+
+    if proxy_ids:
+        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
+        result = await db.execute(stmt)
+        proxies_for_toggle_auto = result.scalars().all()
+
+        ipfoxy_proxy_ids = [p.ipfoxy_proxy_id for p in proxies_for_toggle_auto if p.ipfoxy_proxy_id]
+        if not ipfoxy_proxy_ids:
+            raise HTTPException(status_code=400, detail="Не удалось найти внешние ID для выбранных прокси")
+        
+    try:
+        service_data = await IPFoxyService.get_service_by_user(db, current_user)
+        if not service_data:
+            raise HTTPException(status_code=400, detail='API ключ не привязан.')
+        service, user_api_key = service_data
+
+        str_ipfoxy_proxy_id = ",".join(str(pid) for pid in ipfoxy_proxy_ids)
+
+        code, msg = await service.automatic_renew(int(enable), str_ipfoxy_proxy_id)
+        if code not in [0, 200]:
+            raise HTTPException(status_code=code, detail=f'Ошибка сервиса IpFoxy: {msg}')
+        
+        for proxy in proxies_for_toggle_auto:
+            proxy.auto_extend = enable
+        await db.commit()
+
+    except Exception as exc:
+        logger.info(f'[TOGGLE_AUTO] ошибка продления прокси: {exc}')
+        raise HTTPException(status_code=500, detail=f'Ошибка продления прокси: {exc}')
+
+    return {'proxy_id': proxy_ids, 'auto_extend': enable}
+        
+
+# async def set_auto_extend(
+#         db: AsyncSession,
+#         proxy_id: int,
+#         auto_extend: bool,
+#         current_user: User
+# ) -> dict:
+#     """Включить/выключить автопродление. Admin может менять любой прокси."""
+#     api_key_id = None if current_user.role == UserRole.admin else current_user.api_key_id
+#     proxy = await get_proxy_or_404(db, proxy_id, api_key_id=api_key_id)
+#     proxy.auto_extend_local = auto_extend
+#     await db.commit()
+#     logger.info(f'[AUTO_EXTEND] proxy_id={proxy_id} auto_extend={auto_extend} by user={current_user.id}')
+#     return {'proxy_id': proxy_id, 'auto_extend': auto_extend}

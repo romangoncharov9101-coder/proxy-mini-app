@@ -106,10 +106,13 @@ async def get_current_user(
             username=tg_user_data.get('username', ''),
             first_name=tg_user_data.get('first_name', ''),
             role=role_from_whitelist,
+            api_key_id=whitelist_entry.pending_api_key_id,
         )
         db.add(user)
         await db.commit()
         await db.refresh(user)
+        if whitelist_entry.pending_api_key_id:
+            logger.info(f'[AUTH] tg_id={tg_id} — применён pending_api_key_id={whitelist_entry.pending_api_key_id}')
     else:
         if user.role != role_from_whitelist:
             logger.info(f'[AUTH] tg_id={tg_id} - роль изменилась {user.role} -> {role_from_whitelist} (Синхронизация с Whitelist)')

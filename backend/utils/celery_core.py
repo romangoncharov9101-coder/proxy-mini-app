@@ -80,21 +80,18 @@ celery_app.conf.beat_schedule = {
         'task': 'backend.tasks.sync_tasks.sync_balances_task',
         'schedule': crontab(minute='*/30'),
     },
-    'sync_proxies_every_30min': {
+    'sync_proxies_every_15min': {
         'task': 'backend.tasks.sync_tasks.sync_proxies_task',
-        'schedule': crontab(minute='*/30'),
+        'schedule': crontab(minute='*/15'),
     },
     'daily_notify_expiring_proxies': {
         'task': 'backend.tasks.notifications_tasks.notify_expiring_proxies_task',
         'schedule': crontab(hour=9, minute=0),
     },
-    'daily_auto_renew_proxies': {
-        'task': 'backend.tasks.notifications_tasks.auto_renew_proxies_task',
-        'schedule': crontab(hour=3, minute=0),
-    },
 }
 
 @worker_ready.connect
 def on_worker_ready(sender, **kwargs):
-    logger.info('[CELERY] Воркер готов — запускаем первичную синхронизацию регионов')
+    logger.info('[CELERY] Воркер готов — запускаем первичную синхронизацию регионов и прокси')
     celery_app.send_task('backend.tasks.sync_tasks.sync_regions_task')
+    celery_app.send_task('backend.tasks.sync_tasks.sync_proxies_task')

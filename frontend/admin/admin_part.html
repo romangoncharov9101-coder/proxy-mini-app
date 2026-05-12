@@ -537,6 +537,10 @@ function buildAdminProxyCard(p) {
 
     const expiresStr = expires ? expires.toLocaleDateString('ru-RU') : '—';
     const borderClass = isUrgent ? 'border-yellow-500' : 'border-black';
+    const connStr = `${p.type || 'http'}://${p.host}:${p.port}:${p.username || ''}:${p.password || ''}`;
+    const noteHtml = p.note
+        ? `<div class="text-[9px] font-mono text-gray-500 italic truncate mt-0.5">📝 ${p.note}</div>`
+        : '';
 
     const el = document.createElement('div');
     el.className = `border-2 ${borderClass} p-0 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all`;
@@ -551,7 +555,7 @@ function buildAdminProxyCard(p) {
                     </div>
                 </div>
                 <!-- Основная информация — клик открывает детали -->
-                <div class="min-w-0 cursor-pointer" onclick="_onAdminCardBodyClick(${p.id}, event)">
+                <div class="min-w-0 cursor-pointer flex-1" onclick="_onAdminCardBodyClick(${p.id}, event)">
                     <div class="flex items-center gap-2">
                         <div class="w-2.5 h-2.5 ${dotColor} border border-black shrink-0 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"></div>
                         <span class="text-[12px] font-black truncate tracking-tight font-mono">${p.host}:${p.port}</span>
@@ -559,6 +563,7 @@ function buildAdminProxyCard(p) {
                     <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
                         ${p.type} · ${(p.ip_type).replace(/_/g, ' ')}
                     </div>
+                    ${noteHtml}
                 </div>
             </div>
             <div class="shrink-0 bg-black text-white px-2 py-1 text-[10px] font-black uppercase italic">
@@ -568,14 +573,26 @@ function buildAdminProxyCard(p) {
 
         <div class="border-t border-black/10 mx-3"></div>
 
-        <div class="p-3 pt-2 flex items-center justify-between">
+        <div class="p-3 pt-2 flex items-center justify-between gap-2 flex-wrap">
             <div class="flex flex-col cursor-pointer" onclick="_onAdminCardBodyClick(${p.id}, event)">
                 <span class="text-[8px] font-black text-gray-400 uppercase leading-none mb-1">Срок действия:</span>
                 <span class="text-[10px] font-black ${isUrgent ? 'text-yellow-600' : (isExpired ? 'text-red-500' : 'text-black')}">
                     ${isExpired ? 'СРОК ИСТЕК' : `${expiresStr} (${daysLeft}д.)`}
                 </span>
             </div>
-            <div class="flex gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- Автопродление -->
+                <button onclick="event.stopPropagation(); _adminToggleAutoExtend(${p.id}, ${!p.auto_extend})"
+                    title="Автопродление"
+                    class="border-2 border-black px-2 py-1.5 text-[9px] font-black transition-all ${p.auto_extend ? 'bg-black text-white' : 'bg-white hover:bg-zinc-100'}">
+                    ♻
+                </button>
+                <!-- Копировать строку подключения -->
+                <button onclick="event.stopPropagation(); copyText('${connStr.replace(/'/g, "\\'")}')"
+                    title="Копировать строку подключения"
+                    class="border-2 border-black px-2 py-1.5 text-[9px] font-black hover:bg-black hover:text-white transition-all">
+                    ⧉
+                </button>
                 <button onclick="event.stopPropagation(); openExtendModal([${p.id}], '/api/v1/admin/proxies/extend')"
                     class="bg-white border-2 border-black px-3 py-1.5 text-[9px] font-black uppercase hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[1px]">
                     + ПРОДЛИТЬ
@@ -948,6 +965,65 @@ function openAdminDurationModal(areaId) {
         openDurationModal(areaId);
     } else {
         window.Telegram?.WebApp?.showAlert?.('Функция покупки недоступна в данном контексте');
+    }
+}
+
+// Копирование текста в буфер обмена (глобальный хелпер для карточек прокси)
+function copyText(text) {
+    navigator.clipboard.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+    });
+    window.Telegram?.WebApp?.showAlert?.('Скопировано!');
+}
+
+// Переключение автопродления прямо с карточки (для admin)
+async function _adminToggleAutoExtend(proxyId, newValue) {
+    if (newValue) {
+        // Показываем подтверждение через общий modal если доступен
+        let monthlyPrice = null;
+        try {
+            const priceRes = await fetch('/api/v1/user/calculate-price', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+                body: JSON.stringify({ order_type: 'EXTEND', proxy_ids: [proxyId], days: 30 })
+            });
+            if (priceRes.ok) {
+                const pd = await priceRes.json();
+                monthlyPrice = pd.order_price ?? null;
+            }
+        } catch (_) {}
+
+        window._autoExtendConfirmedCallback = async (confirmedId) => {
+            await _doAdminSetAutoExtend(confirmedId, true);
+            window._autoExtendConfirmedCallback = null;
+        };
+        if (typeof window.openAutoExtendConfirmModal === 'function') {
+            window.openAutoExtendConfirmModal(proxyId, monthlyPrice);
+        } else {
+            await _doAdminSetAutoExtend(proxyId, true);
+        }
+    } else {
+        await _doAdminSetAutoExtend(proxyId, false);
+    }
+}
+
+async function _doAdminSetAutoExtend(proxyId, value) {
+    try {
+        const res = await fetch(`/api/v1/user/proxies/${proxyId}/auto-extend`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
+            body: JSON.stringify({ auto_extend: value })
+        });
+        if (!res.ok) throw new Error(res.status);
+        // Перерисовываем список чтобы обновить кнопку
+        if (typeof resetAndReloadAdminProxies === 'function') resetAndReloadAdminProxies();
+    } catch (e) {
+        window.Telegram?.WebApp?.showAlert?.('ОШИБКА СОХРАНЕНИЯ АВТОПРОДЛЕНИЯ');
     }
 }
 </script>

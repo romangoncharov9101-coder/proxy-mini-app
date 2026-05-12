@@ -14,7 +14,9 @@ from backend.utils.config import settings
 logger = logging.getLogger('celery.tasks')
 
 WARN_BEFORE_DAYS = 3
-REMIND_AFTER_EXPIRY_DAYS = 3
+IPFOXY_GRACE_DAYS = 2
+DEACTIVATE_AFTER_GRACE_DAYS = IPFOXY_GRACE_DAYS
+REMIND_AFTER_EXPIRY_DAYS = IPFOXY_GRACE_DAYS
 AUTO_RENEW_BEFORE_DAYS = 7
 DELETE_NOTIFICATION_AFTER_HOURS = 48
 EDIT_THRESHOLD_HOURS = 24
@@ -101,11 +103,14 @@ def _build_notification_text(proxies: list[Proxy], is_admin: bool = False) -> st
             uname = p.owner.username or p.owner.first_name or f"id{p.owner.telegram_id}"
             owner_str = f"\n   👤 Владелец: @{uname}"
 
+        note_str = f"\n   📝 {p.note}" if p.note else ""
+
         lines.append(
             f"🔹 <code>{host_str}</code>\n"
             f"   {status_str}\n"
             f"   Истекает: {_fmt_dt(expires)}"
             f"{owner_str}"
+            f"{note_str}"
         )
 
     lines.append('\n<i>ДЛЯ ПРОДЛЕНИЯ ОТКРОЙТЕ ПРИЛОЖЕНИЕ.</i>')
@@ -126,11 +131,16 @@ def notify_expiring_proxies_task(self):
         async with AssyncSessionLocal() as db:
             now = datetime.now(timezone.utc)
             expiry_warn_threshold = now + timedelta(days=WARN_BEFORE_DAYS)
+            # Граница деактивации: expires_at + 2 дня grace от IPFoxy уже прошли
+            deactivate_threshold = now - timedelta(days=DEACTIVATE_AFTER_GRACE_DAYS)
+            # Граница напоминания: прокси просрочен, но ещё в grace period или чуть позже
             expired_remind_threshold = now - timedelta(days=REMIND_AFTER_EXPIRY_DAYS)
 
+            # Деактивируем прокси только после истечения grace period IPFoxy (2 дня после expires_at).
+            # Это защищает от ложной деактивации: IPFoxy продолжает работать 2 дня после expire.
             stmt_overdue = select(Proxy).where(
                 Proxy.is_active.is_(True),
-                Proxy.expires_at < expired_remind_threshold,
+                Proxy.expires_at < deactivate_threshold,
             )
             res_overdue = await db.execute(stmt_overdue)
             overdue_proxies = res_overdue.scalars().all()
@@ -141,7 +151,7 @@ def notify_expiring_proxies_task(self):
                 await db.commit()
 
             stmt_warm = select(Proxy).where(
-                Proxy.auto_extend_local.is_(False),
+                Proxy.auto_extend.is_(False),
                 Proxy.expires_at > expired_remind_threshold,
                 Proxy.expires_at < expiry_warn_threshold
             )
@@ -226,87 +236,3 @@ def notify_expiring_proxies_task(self):
     except Exception as exc:
         logger.error(f'[NOTIFY] Критическая ошибка: {exc}', exc_info=True)
         raise self.retry(exc=exc)
-    
-@shared_task(
-    name='backend.tasks.notifications_tasks.auto_renew_proxies_task',
-    bind=True, max_retries=2, default_retry_delay=60
-)
-def auto_renew_proxies_task(self):
-    """
-    Ежедневная задача.
-    Для прокси с auto_extend_local=True и expires_at < now + 7 дней
-    выполняет renew_proxy через привязанный API ключ.
-    """
-    logger.info('[AUTO_RENEW] Задача запущена')
-
-    async def logic():
-        async with AssyncSessionLocal() as db:
-            now = datetime.now(timezone.utc)
-            renew_threshold = now + timedelta(days=AUTO_RENEW_BEFORE_DAYS)
-
-            stmt = select(Proxy).where(
-                Proxy.auto_extend_local.is_(True),
-                Proxy.is_active.is_(True),
-                Proxy.expires_at != None,
-                Proxy.expires_at < renew_threshold
-            )
-            result = await db.execute(stmt)
-            proxies_to_renew: list[Proxy] = result.scalars().all()
-
-            if not proxies_to_renew:
-                logger.info(f'[AUTO_RENEW] нет прокси для продления')
-                return {'status': 'ok', 'renewed': 0}
-            
-            logger.info(f'[AUTO_RENEW] Найдено {len(proxies_to_renew)} прокси для продления')
-            services_cache: dict[int, IPFoxyService | None] = {}
-            renewed_count = 0
-            failed_count = 0
-
-            for proxy in proxies_to_renew:
-                api_key_id = proxy.api_key_id
-                if api_key_id is None:
-                    logger.warning(f'[AUTO_RENEW] proxy_id={proxy.id} - нет api_key_id, пропуск')
-                    continue
-
-                if api_key_id not in services_cache:
-                    stmt_key = select(ApiKey).where(
-                        ApiKey.id == api_key_id,
-                        ApiKey.is_active.is_(True),
-                    )
-                    res_key = await db.execute(stmt_key)
-                    key_obj = res_key.scalar_one_or_none()
-                    if key_obj:
-                        services_cache[api_key_id] = IPFoxyService.get_service_by_key_obj(key_obj)
-                    else:
-                        services_cache[api_key_id] = None
-                        logger.warning(f'[AUTO_RENEW] api_key_id={api_key_id} не найдено или неактивен')
-
-                service = services_cache.get(api_key_id)
-                if not service:
-                    continue
-
-                try:
-                    result_renew = await service.renew_proxy(
-                        proxy_ids=proxy.ipfoxy_proxy_id,
-                        days=30
-                    )
-                    code = result_renew.get('code', -1)
-                    if code in (0, 200):
-                        renewed_count += 1
-                        logger.info(f'[AUTO_RENEW] proxy_id={proxy.id} ipfoxy_id={proxy.ipfoxy_proxy_id} - продлен')
-                    else:
-                        failed_count += 1
-                        logger.error(f'[AUTO_RENEW] proxy_id={proxy.id} - API вернул code={code}: {result_renew}')
-                except Exception as exc:
-                    failed_count += 1
-                    logger.error(f'[AUTO_RENEW] proxy_id={proxy.id} - ошибка: {exc}', exc_info=True)
-
-            logger.info(f'[AUTO_RENEW] Завершено. Продлено: {renewed_count}, ошибок: {failed_count}')
-            return {'status': 'ok', 'renewed': renewed_count, 'failed': failed_count}
-        
-    try:
-        return run_async(logic())
-    except Exception as exc:
-        logger.error(f'[AUTO_RENEW] Критическая ошибка: {exc}', exc_info=True)
-        raise self.retry(exc=exc)
-

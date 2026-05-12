@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str
     LOG_DIR: str
     APP_TIMEZONE: str
+    IPINFO_TOKEN: str
 
     model_config = SettingsConfigDict(env_file=".env")
 

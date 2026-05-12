@@ -29,7 +29,7 @@ async def extend_proxies_service(
     else:
         stmt = select(Proxy).where(
             Proxy.id.in_(proxy_ids),
-            Proxy.owner_id == current_user.id,
+            Proxy.api_key_id == current_user.api_key_id,
         )
 
     result = await db.execute(stmt)
@@ -121,7 +121,7 @@ async def resolve_ipfoxy_ids(
     if current_user.role == UserRole.admin:
         stmt = select(Proxy).where(Proxy.id.in_(proxy_ids))
     else:
-        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids), Proxy.owner_id == current_user.id)
+        stmt = select(Proxy).where(Proxy.id.in_(proxy_ids), Proxy.api_key_id == current_user.api_key_id)
 
     result = await db.execute(stmt)
     proxies = result.scalars().all()

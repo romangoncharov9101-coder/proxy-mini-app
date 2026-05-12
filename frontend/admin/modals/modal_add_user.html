@@ -59,11 +59,14 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     const keyId = document.getElementById('new_user_key_id').value;
 
     try {
-        /* 1. Добавляем в whitelist */
+        /* 1. Добавляем в whitelist сразу с pending_api_key_id */
+        const wlBody = { telegram_id: tgId, role };
+        if (keyId) wlBody.pending_api_key_id = parseInt(keyId);
+
         const wlRes = await fetch('/api/v1/admin/whitelist', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-TG-Init-Data': TG_INIT },
-            body: JSON.stringify({ telegram_id: tgId, role })
+            body: JSON.stringify(wlBody)
         });
         const wlData = await wlRes.json();
         if (!wlRes.ok) throw new Error(wlData.detail || 'Ошибка добавления в whitelist');

@@ -30,6 +30,7 @@ class Whitelist(Base):
     role = Column(SAEnum(UserRole), default=UserRole.user, nullable=False)
     added_at = Column(DateTime(timezone=True), server_default=func.now())
     added_by = Column(BigInteger, nullable=True)
+    pending_api_key_id = Column(Integer, ForeignKey('api_keys.id'), nullable=True)
 
     def __repr__(self):
         return f'<Whitelist tg_id={self.telegram_id} role={self.role}>'
@@ -67,7 +68,6 @@ class Proxy(Base):
     password = Column(String(255), nullable=True)
 
     auto_extend = Column(Boolean, default=False)
-    auto_extend_local = Column(Boolean, default=False)
     ip_type = Column(String(50))
     ip_version = Column(String(20))
 
@@ -81,6 +81,8 @@ class Proxy(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     renewal_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
+
+    note = Column(String(500), nullable=True)
 
     checked_location = Column(String(50), nullable=True)
     location_match = Column(Boolean, nullable=True)

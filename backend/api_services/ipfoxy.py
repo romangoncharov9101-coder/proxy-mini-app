@@ -170,7 +170,7 @@ class IPFoxyService:
             params={'days': days, 'proxy_ids': proxy_ids}
         )
     
-    async def purchase_proxy(self, area_id: int, num: int, days: int = 30, auto_extend: int = 0) -> Optional[str]:
+    async def purchase_proxy(self, area_id: int, num: int, days: int = 30, auto_extend: int = 1) -> Optional[str]:
         """ Метод на покупку прокси """
         payload = {
             "days": int(days),
@@ -237,3 +237,20 @@ class IPFoxyService:
         regions: list = data.get('data', [])
         logger.info(f'[REGIONS] key_name={self.key_name} - {len(regions)} регионов')
         return regions
+    
+    async def automatic_renew(self, auto_extend: bool, proxy_ids: list[str]):
+        """
+        Переключить статус автопродления прокси через интерфейс IPFoxy
+        """
+        payload = {
+            'auto_extend': auto_extend,
+            'proxy_ids': proxy_ids
+        }
+        data = await self._make_request(
+            'POST',
+            '/ip/open-api/auto-extend',
+            params=payload,
+        )
+        logger.info(f'[SET_AUTO_EXTEND] Прокси: {proxy_ids} изменен статус автопродления.')
+        code, message, response = data.get('code', '404'), data.get('msg', 'Error.'), data.get('data', '{}')
+        return code, message

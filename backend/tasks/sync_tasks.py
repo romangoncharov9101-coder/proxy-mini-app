@@ -10,6 +10,13 @@ from backend.database.database import AssyncSessionLocal
 from backend.database.models import Regions, ApiKey
 from backend.api_services.ipfoxy import IPFoxyService
 
+import json
+from datetime import datetime, timezone
+from backend.database.models import Proxy, Regions
+from redis.asyncio import Redis
+from backend.utils.config import settings as cfg
+from backend.utils.check_location import check_proxy_country_with_ip_api
+
 logger = logging.getLogger('celery.tasks')
 
 def run_async(coro):
@@ -25,6 +32,13 @@ def _to_decimal(value):
     except (ValueError, InvalidOperation):
         return Decimal('0.00')
 
+def ts_to_dt(val):
+    if not val:
+        return None
+    try:
+        return datetime.fromtimestamp(int(val), tz=timezone.utc)
+    except Exception:
+        return None
 
 @shared_task(name='backend.tasks.sync_tasks.sync_regions_task', bind=True, max_retries=3, default_retry_delay=60)
 def sync_regions_task(self):
@@ -155,7 +169,6 @@ def sync_balances_task(self):
         logger.error(f'[SYNC_BALANCES] Неперехваченная ошибка: {exc}')
         raise self.retry(exc=exc)
 
-
 @shared_task(name='backend.tasks.sync_tasks.sync_proxies_task', bind=True, max_retries=3, default_retry_delay=60)
 def sync_proxies_task(self, api_key_db_id: int = None):
     """
@@ -172,12 +185,6 @@ def sync_proxies_task(self, api_key_db_id: int = None):
     logger.info(f'[SYNC_PROXIES] Задача запущена api_key_db_id={api_key_db_id}')
 
     async def logic():
-        import json
-        from datetime import datetime, timezone
-        from backend.database.models import Proxy, Regions
-        from redis.asyncio import Redis
-        from backend.utils.config import settings as cfg
-
         # Получаем список ключей для обработки
         async with AssyncSessionLocal() as db:
             if api_key_db_id:
@@ -225,8 +232,37 @@ def sync_proxies_task(self, api_key_db_id: int = None):
 
                 for p in batch:
                     proxy_id = str(p.get('id') or '').strip()
-                    if not proxy_id or proxy_id in existing_ids:
-                        continue  # уже есть — пропускаем
+                    if not proxy_id:
+                        continue
+
+                    if proxy_id in existing_ids:
+                        existing_proxy_res = await db.execute(
+                            select(Proxy).where(Proxy.ipfoxy_proxy_id == proxy_id)
+                        )
+                        existing_proxy = existing_proxy_res.scalar_one_or_none()
+                        if existing_proxy:
+                            existing_proxy.auto_extend = bool(int(p.get('auto_extend', 0)))
+                            existing_proxy.expires_at = ts_to_dt(p.get('expire_time'))
+                            existing_proxy.renewal_at = ts_to_dt(p.get('renewal_time'))
+
+                            # Заполняем геолокацию если она ещё не была проверена
+                            if existing_proxy.checked_location is None:
+                                geo_ip = str(existing_proxy.public_ip or existing_proxy.host or '')
+                                expected_cc = str(existing_proxy.country_code or '').strip().upper() or None
+                                if geo_ip:
+                                    try:
+                                        checked_location, location_match = await check_proxy_country_with_ip_api(
+                                            ip_or_host=geo_ip,
+                                            expected_country_code=expected_cc,
+                                        )
+                                        existing_proxy.checked_location = checked_location
+                                        existing_proxy.location_match   = location_match
+                                        logger.debug(f'[SYNC_PROXIES] Геолокация заполнена proxy_id={proxy_id} → {checked_location} match={location_match}')
+                                    except Exception as loc_exc:
+                                        logger.warning(f'[SYNC_PROXIES] Ошибка геопроверки existing ip={geo_ip}: {loc_exc}')
+
+                            await db.commit()
+                        continue
 
                     host = str(p.get('host') or '').strip()
                     port_raw = p.get('port')
@@ -243,35 +279,40 @@ def sync_proxies_task(self, api_key_db_id: int = None):
                         logger.warning(f'[SYNC_PROXIES] area_id={area_id} не в БД, пропускаю proxy_id={proxy_id}')
                         continue
 
-                    # Парсим unix-timestamp поля
-                    def ts_to_dt(val):
-                        if not val:
-                            return None
-                        try:
-                            return datetime.fromtimestamp(int(val), tz=timezone.utc)
-                        except Exception:
-                            return None
+                    # Проверяем геолокацию нового прокси (как при покупке)
+                    public_ip_for_check = str(p.get('public_ip') or host)
+                    expected_cc = str(p.get('country_code') or '').strip().upper() or None
+                    try:
+                        checked_location, location_match = await check_proxy_country_with_ip_api(
+                            ip_or_host=public_ip_for_check,
+                            expected_country_code=expected_cc,
+                        )
+                    except Exception as loc_exc:
+                        logger.warning(f'[SYNC_PROXIES] Ошибка геопроверки ip={public_ip_for_check}: {loc_exc}')
+                        checked_location, location_match = None, None
 
                     new_proxies_to_insert.append({
-                        'ipfoxy_proxy_id': proxy_id,
-                        'host':            host,
-                        'public_ip':       str(p.get('public_ip') or host),
-                        'port':            port,
-                        'type':            str(p.get('type') or 'http'),
-                        'username':        str(p.get('user') or ''),
-                        'password':        str(p.get('password') or ''),
-                        'auto_extend':     str(p.get('auto_extend', '0')) == '1',
-                        'ip_type':         str(p.get('ip_type') or ''),
-                        'ip_version':      str(p.get('ip_version') or 'IPv4'),
-                        'country_code':    str(p.get('country_code') or ''),
-                        'area_id':         area_id,
-                        'api_key_id':      key_obj.id,
-                        'expires_at':      ts_to_dt(p.get('expire_time')),
-                        'purchased_at':    ts_to_dt(p.get('buy_time')),
-                        'renewal_at':      ts_to_dt(p.get('renewal_time')),
-                        'is_active':       True,
+                        'ipfoxy_proxy_id':  proxy_id,
+                        'host':             host,
+                        'public_ip':        public_ip_for_check,
+                        'port':             port,
+                        'type':             str(p.get('type') or 'http'),
+                        'username':         str(p.get('user') or ''),
+                        'password':         str(p.get('password') or ''),
+                        'auto_extend':      bool(int(p.get('auto_extend', 0))),
+                        'ip_type':          str(p.get('ip_type') or ''),
+                        'ip_version':       str(p.get('ip_version') or 'IPv4'),
+                        'country_code':     str(p.get('country_code') or ''),
+                        'area_id':          area_id,
+                        'api_key_id':       key_obj.id,
+                        'expires_at':       ts_to_dt(p.get('expire_time')),
+                        'purchased_at':     ts_to_dt(p.get('buy_time')),
+                        'renewal_at':       ts_to_dt(p.get('renewal_time')),
+                        'is_active':        True,
+                        'checked_location': checked_location,
+                        'location_match':   location_match,
                     })
-                    existing_ids.add(proxy_id)  # чтобы не дублировать в рамках одного запуска
+                    existing_ids.add(proxy_id)
 
                 if len(batch) < page_size:
                     break  # последняя страница

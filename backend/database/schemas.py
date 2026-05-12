@@ -32,6 +32,7 @@ class UserListItem(BaseModel):
 class WhitelistAddRequest(BaseModel):
     telegram_id: int = Field(..., description='Telegram ID пользователя')
     role: UserRole = UserRole.user
+    pending_api_key_id: Optional[int] = None
 
 class WhitelistResponse(BaseModel):
     id: int
@@ -92,6 +93,10 @@ class ProxyListItem(BaseModel):
     is_active: bool
     expires_at: Optional[datetime]
     purchased_at: datetime
+    note: Optional[str] = None
+    auto_extend: Optional[bool] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -121,6 +126,7 @@ class ProxyDetail(BaseModel):
     owner_username:    Optional[str] = None
     owner_tg_id:       Optional[int] = None
     api_key_name:      Optional[str] = None
+    note:              Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -136,6 +142,9 @@ class ExtendProxyRequest(BaseModel):
 
 class AutoExtendRequest(BaseModel):
     auto_extend: bool
+
+class ProxyNoteUpdate(BaseModel):
+    note: Optional[str] = None 
 
 class ProxyActiveRequest(BaseModel):
     is_active: bool
