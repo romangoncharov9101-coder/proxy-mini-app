@@ -375,65 +375,85 @@ async def purchase_proxy_endpoint(
             raise HTTPException(status_code=400, detail='API ключ не привязан.')
         service, user_api_key = service_data
 
-        total_cost = await service.get_order_price(
-            order_type="BUY",
-            area_id=request.area_id,
-            num=request.num,
-            days=request.days,
-        )
-        current_balance = user_api_key.balance or Decimal("0.00")
+        # Распределённая блокировка — исключаем одновременные покупки по одному API-ключу
+        lock_key = f"purchase_lock:api_key:{user_api_key.id}"
+        lock_ttl_ms = 30_000  # 30 секунд — достаточно для завершения покупки
 
-        if current_balance < total_cost:
-            raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD. Необходимо: {total_cost}')
+        async with Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        ) as redis_client:
+            acquired = await redis_client.set(lock_key, user_id, nx=True, px=lock_ttl_ms)
+            if not acquired:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Покупка уже выполняется. Подождите несколько секунд и попробуйте снова."
+                )
+            try:
+                total_cost = await service.get_order_price(
+                    order_type="BUY",
+                    area_id=request.area_id,
+                    num=request.num,
+                    days=request.days,
+                )
+                current_balance = user_api_key.balance or Decimal("0.00")
 
-        region_res = await db.execute(select(Regions).where(Regions.area_id == str(request.area_id)))
-        region = region_res.scalar_one_or_none()
-        if not region:
-            raise HTTPException(status_code=400, detail='Регион не найден')
+                if current_balance < total_cost:
+                    raise HTTPException(status_code=400, detail=f'Недостаточно средств. Баланс: {current_balance} USD. Необходимо: {total_cost}')
 
-        expected_country_code = region.country_code
+                region_res = await db.execute(select(Regions).where(Regions.area_id == str(request.area_id)))
+                region = region_res.scalar_one_or_none()
+                if not region:
+                    raise HTTPException(status_code=400, detail='Регион не найден')
 
-        order_id = await service.purchase_proxy(
-            area_id=request.area_id,
-            num=request.num,
-            days=request.days,
-        )
-        if not order_id:
-            raise ValueError('Не получен order_id от провайдера')
+                expected_country_code = region.country_code
 
-        try:
-            user_api_key.balance = await service.get_balance()
-        except Exception as bal_exc:
-            logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
-            user_api_key.balance = current_balance - total_cost
+                order_id = await service.purchase_proxy(
+                    area_id=request.area_id,
+                    num=request.num,
+                    days=request.days,
+                )
+                if not order_id:
+                    raise ValueError('Не получен order_id от провайдера')
 
-        transaction = Transaction(
-            user_id=current_user.id,
-            order_id=str(order_id),
-            api_key_id=user_api_key.id,
-            type=TransactionType.purchase,
-            amount=total_cost,
-            description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
-        )
-        db.add(transaction)
-        await db.commit()
+                try:
+                    user_api_key.balance = await service.get_balance()
+                except Exception as bal_exc:
+                    logger.warning("[PURCHASE] Не удалось обновить баланс: %s", bal_exc)
+                    user_api_key.balance = current_balance - total_cost
 
-        from backend.tasks.sync_tasks import activate_proxies_task
-        activate_proxies_task.delay(
-            order_id=str(order_id),
-            user_id=current_user.id,
-            api_key_id=user_api_key.id,
-            expected_country_code=expected_country_code,
-            area_id=str(request.area_id),
-            days=request.days,
-        )
+                transaction = Transaction(
+                    user_id=current_user.id,
+                    order_id=str(order_id),
+                    api_key_id=user_api_key.id,
+                    type=TransactionType.purchase,
+                    amount=total_cost,
+                    description=f"Order {order_id}: {request.num} proxies × {request.days}d — АКТИВАЦИЯ",
+                )
+                db.add(transaction)
+                await db.commit()
 
-        return {
-            'status': 'pending',
-            'order_id': order_id,
-            'message': 'Заказ оформлен, прокси появятся в течение минуты',
-            'count': request.num
-        }
+                from backend.tasks.sync_tasks import activate_proxies_task
+                activate_proxies_task.delay(
+                    order_id=str(order_id),
+                    user_id=current_user.id,
+                    api_key_id=user_api_key.id,
+                    expected_country_code=expected_country_code,
+                    area_id=str(request.area_id),
+                    days=request.days,
+                )
+
+                return {
+                    'status': 'pending',
+                    'order_id': order_id,
+                    'message': 'Заказ оформлен, прокси появятся в течение минуты',
+                    'count': request.num
+                }
+            finally:
+                # Снимаем блокировку сразу после завершения покупки
+                await redis_client.delete(lock_key)
 
     except HTTPException:
         raise
