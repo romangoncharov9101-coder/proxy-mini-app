@@ -22,16 +22,28 @@ def _build_proxy_list_stmt(
         key_id: Optional[int] = None,
         filter_owner_id: Optional[int] = None,
         proxy_status: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        country_code: Optional[str] = None,
 ):
     """
     Строит SQLAlchemy-statement для выборки прокси.
     user_api_key_id - api_key_id текущего пользователя (для user-роута);
                       None означает "все прокси" (для admin-роута).
-    owner_search    - поиск по username/first_name/telegram_id владельца
-                      ИЛИ key_name/api_id ключа (только для admin-роута).
+    sort_by: newest | oldest | expires_asc | expires_desc
+    country_code: фильтр по коду страны
     """
     now = datetime.now(timezone.utc)
     expiration_threshold = now - timedelta(days=2)
+
+    # Определяем порядок сортировки
+    if sort_by == 'oldest':
+        order_clause = [Proxy.purchased_at.asc(), Proxy.id.asc()]
+    elif sort_by == 'expires_asc':
+        order_clause = [Proxy.expires_at.asc(), Proxy.id.asc()]
+    elif sort_by == 'expires_desc':
+        order_clause = [Proxy.expires_at.desc(), Proxy.id.desc()]
+    else:  # newest (default)
+        order_clause = [Proxy.purchased_at.desc(), Proxy.id.desc()]
 
     if user_api_key_id is None:
         stmt = (
@@ -39,13 +51,13 @@ def _build_proxy_list_stmt(
             .outerjoin(User, Proxy.owner_id == User.id)
             .outerjoin(ApiKey, Proxy.api_key_id == ApiKey.id)
             .where(Proxy.expires_at > expiration_threshold)
-            .order_by(Proxy.purchased_at.desc(), Proxy.id.desc())
+            .order_by(*order_clause)
         )
     else:
         stmt = (
             select(Proxy)
             .where(Proxy.expires_at > expiration_threshold)
-            .order_by(Proxy.purchased_at.desc(), Proxy.id.desc())
+            .order_by(*order_clause)
         )
 
     if user_api_key_id is not None:
@@ -82,6 +94,9 @@ def _build_proxy_list_stmt(
     if filter_owner_id:
         stmt = stmt.where(Proxy.owner_id == filter_owner_id)
 
+    if country_code:
+        stmt = stmt.where(Proxy.country_code.ilike(country_code))
+
     if proxy_status == 'active':
         stmt = stmt.where(Proxy.is_active == True, Proxy.expires_at > now)
     elif proxy_status == 'inactive':
@@ -103,6 +118,8 @@ async def get_proxy_page(
         key_id: Optional[int] = None,
         filter_owner_id: Optional[int] = None,
         proxy_status: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        country_code: Optional[str] = None,
 ) -> dict:
     """Возвращает страницу прокси с cursor-пагинацией."""
     stmt = _build_proxy_list_stmt(
@@ -113,6 +130,8 @@ async def get_proxy_page(
         key_id=key_id,
         filter_owner_id=filter_owner_id,
         proxy_status=proxy_status,
+        sort_by=sort_by,
+        country_code=country_code,
     )
 
     result = await db.execute(stmt)
@@ -121,8 +140,38 @@ async def get_proxy_page(
     items = rows[:limit]
     next_cursor = items[-1].id if (has_more and items) else None
 
-    logger.debug(f'[PROXY_PAGE] user_api_key_id={user_api_key_id} returned={len(items)} has_more={has_more}')
-    return {'items': items, 'next_cursor': next_cursor, 'has_more': has_more}
+    # Подгружаем owner info для всех режимов (owner lazy='selectin' — уже загружен)
+    proxy_items = []
+    for proxy in items:
+        owner_username = None
+        owner_tg_id = None
+        if proxy.owner:
+            owner_username = proxy.owner.username
+            owner_first_name= proxy.owner.first_name
+        # Создаём dict из proxy + owner fields
+        from backend.database.schemas import ProxyListItem
+        item = ProxyListItem(
+            id=proxy.id,
+            host=proxy.host,
+            port=proxy.port,
+            type=proxy.type,
+            ip_type=proxy.ip_type,
+            ip_version=proxy.ip_version,
+            country_code=proxy.country_code,
+            is_active=proxy.is_active,
+            expires_at=proxy.expires_at,
+            purchased_at=proxy.purchased_at,
+            note=proxy.note,
+            auto_extend=proxy.auto_extend,
+            username=proxy.username,
+            password=proxy.password,
+            owner_username=owner_username,
+            owner_first_name=owner_first_name,
+        )
+        proxy_items.append(item)
+
+    logger.debug(f'[PROXY_PAGE] user_api_key_id={user_api_key_id} returned={len(proxy_items)} has_more={has_more}')
+    return {'items': proxy_items, 'next_cursor': next_cursor, 'has_more': has_more}
 
 
 def build_proxy_detail(

@@ -261,6 +261,8 @@ async def get_my_proxies(
     limit:   int = Query(20, ge=1, le=50),
     db:      AsyncSession = Depends(get_db),
     search:       Optional[str] = Query(None, description="Поиск по юзеру, proxy_id, order_id"),
+    sort_by:      Optional[str] = Query(None, description="newest | oldest | expires_asc | expires_desc"),
+    country_code: Optional[str] = Query(None, description="фильтр по коду страны"),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -271,7 +273,28 @@ async def get_my_proxies(
         user_api_key_id=current_user.api_key_id,
         last_id=last_id,
         search=search,
+        sort_by=sort_by,
+        country_code=country_code,
     )
+
+@router.get("/proxies/countries")
+async def get_proxy_countries_user(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Список уникальных стран из купленных прокси пользователя (для фильтра)."""
+    from sqlalchemy import distinct
+    result = await db.execute(
+        select(distinct(Proxy.country_code))
+        .where(
+            Proxy.country_code.isnot(None),
+            Proxy.api_key_id == current_user.api_key_id,
+            Proxy.is_active == True,
+        )
+        .order_by(Proxy.country_code)
+    )
+    codes = [row[0] for row in result.all() if row[0]]
+    return [{"country_code": code} for code in codes]
 
 @router.get("/proxies/{proxy_id}", response_model=schemas.ProxyDetail)
 async def get_proxy_detail(

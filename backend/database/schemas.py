@@ -97,6 +97,8 @@ class ProxyListItem(BaseModel):
     auto_extend: Optional[bool] = None
     username: Optional[str] = None
     password: Optional[str] = None
+    owner_username: Optional[str] = None
+    owner_first_name: Optional[str] = None
 
     class Config:
         from_attributes = True

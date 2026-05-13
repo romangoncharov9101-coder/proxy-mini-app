@@ -107,6 +107,17 @@
                 <option value="inactive">ТОЛЬКО НЕАКТИВНЫЕ</option>
                 <option value="expired">ИСТЕКШИЕ</option>
             </select>
+            <select id="filter-proxies-sort"
+                class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                <option value="newest">↓ СНАЧАЛА НОВЫЕ</option>
+                <option value="oldest">↑ СНАЧАЛА СТАРЫЕ</option>
+                <option value="expires_asc">⏱ ИСТЕКАЮТ СКОРО</option>
+                <option value="expires_desc">⏱ ИСТЕКАЮТ ПОЗЖЕ</option>
+            </select>
+            <select id="filter-proxies-country"
+                class="border-2 border-black p-2 text-[10px] font-black uppercase outline-none bg-white">
+                <option value="">🌍 ВСЕ СТРАНЫ</option>
+            </select>
         </div>
         <!-- Панель мультиселекта (скрыта, пока ничего не выбрано) -->
         <div id="admin-proxy-selection-bar"
@@ -280,6 +291,7 @@ function switchAdminTab(tab, el) {
     if (mainScroll) mainScroll.scrollTop = 0;
 
     if (tab === 'proxies' && adminProxiesState.nextCursor === null && adminProxiesState.hasMore) {
+        loadAdminProxyCountries();
         loadNextAdminProxiesPage();
     }
     if (tab === 'tx' && adminTxState.nextCursor === null && adminTxState.hasMore) {
@@ -450,6 +462,8 @@ async function loadNextAdminProxiesPage() {
 
     const search = document.getElementById('filter-proxies-search').value;
     const proxyStatus = document.getElementById('filter-proxies-status')?.value || 'all';
+    const sortBy = document.getElementById('filter-proxies-sort')?.value || 'newest';
+    const countryCode = document.getElementById('filter-proxies-country')?.value || '';
 
     const status = document.getElementById('admin-proxies-status');
     status.innerHTML = '<span class="animate-pulse">ЗАГРУЗКА...</span>';
@@ -458,8 +472,9 @@ async function loadNextAdminProxiesPage() {
         const params = new URLSearchParams({ limit: 20 });
         if (adminProxiesState.nextCursor != null) params.append('last_id', adminProxiesState.nextCursor);
         if (search) params.append('search', search);
-        if (search) params.append('owner_search', search);
         if (proxyStatus && proxyStatus !== 'all') params.append('proxy_status', proxyStatus);
+        if (sortBy && sortBy !== 'newest') params.append('sort_by', sortBy);
+        if (countryCode) params.append('country_code', countryCode);
 
         const res = await fetch(`/api/v1/admin/proxies?${params}`, { headers: { 'X-TG-Init-Data': TG_INIT } });
         if (!res.ok) throw new Error(res.status);
@@ -541,6 +556,9 @@ function buildAdminProxyCard(p) {
     const noteHtml = p.note
         ? `<div class="text-[9px] font-mono text-gray-500 italic truncate mt-0.5">📝 ${p.note}</div>`
         : '';
+    const ownerHtml = (p.owner_username || p.owner_first_name)
+        ? `<div class="text-[8px] font-bold text-blue-500 uppercase mt-0.5 truncate">👤 ${p.owner_username || '—'} · ИМЯ: ${p.owner_first_name || '—'}</div>`
+        : '';
 
     const el = document.createElement('div');
     el.className = `border-2 ${borderClass} p-0 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all`;
@@ -563,6 +581,7 @@ function buildAdminProxyCard(p) {
                     <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
                         ${p.type} · ${(p.ip_type).replace(/_/g, ' ')}
                     </div>
+                    ${ownerHtml}
                     ${noteHtml}
                 </div>
             </div>
@@ -748,7 +767,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('filter-proxies-search').oninput = () => resetAndReloadAdminProxies();
     document.getElementById('filter-proxies-status').onchange = () => resetAndReloadAdminProxies();
+    document.getElementById('filter-proxies-sort').onchange = () => resetAndReloadAdminProxies();
+    document.getElementById('filter-proxies-country').onchange = () => resetAndReloadAdminProxies();
 });
+
+async function loadAdminProxyCountries() {
+    try {
+        const res = await fetch('/api/v1/admin/proxies/countries', { headers: { 'X-TG-Init-Data': TG_INIT } });
+        if (!res.ok) return;
+        const data = await res.json();
+        const sel = document.getElementById('filter-proxies-country');
+        if (!sel) return;
+        const current = sel.value;
+        while (sel.options.length > 1) sel.remove(1);
+        data.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.country_code;
+            opt.textContent = item.country_code.toUpperCase();
+            sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+    } catch(e) {}
+}
 
 function resetAndReloadAdminProxies() {
     adminProxiesState = {nextCursor: null, hasMore: true, isLoading: false};

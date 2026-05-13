@@ -396,6 +396,8 @@ async def get_all_proxies(
     owner_id:     Optional[int] = Query(None, description='фильтр по user_id владельца'),
     search:       Optional[str] = Query(None, description='Поиск по host, proxy_id, order_id, username/tg_id владельца, key_name/api_id ключа'),
     proxy_status: Optional[str] = Query(None, description='active | inactive | expired | all'),
+    sort_by:      Optional[str] = Query(None, description='newest | oldest | expires_asc | expires_desc'),
+    country_code: Optional[str] = Query(None, description='фильтр по коду страны (US, DE, ...)'),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -408,6 +410,8 @@ async def get_all_proxies(
         key_id=key_id,
         filter_owner_id=owner_id,
         proxy_status=proxy_status,
+        sort_by=sort_by,
+        country_code=country_code,
     )
 
 @router.post('/proxies/sync')
@@ -433,6 +437,21 @@ async def sync_proxies_from_ipfoxy(
     )
     return {'status': 'queued', 'task_id': task.id, 'key_name': api_key.key_name}
 
+
+@router.get('/proxies/countries', response_model=list[dict])
+async def get_proxy_countries_admin(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    '''Список уникальных стран из купленных прокси (для фильтра).'''
+    from sqlalchemy import distinct
+    result = await db.execute(
+        select(distinct(Proxy.country_code))
+        .where(Proxy.country_code.isnot(None))
+        .order_by(Proxy.country_code)
+    )
+    codes = [row[0] for row in result.all() if row[0]]
+    return [{'country_code': code} for code in codes]
 
 @router.get('/proxies/{proxy_id}', response_model=schemas.ProxyDetail)
 async def get_proxy_detail_admin(
@@ -639,6 +658,7 @@ async def update_app_settings(
     await db.commit()
     await db.refresh(settings_obj)
     return schemas.AppSettingsResponse(allowed_area_ids=settings_obj.allowed_area_ids)
+
 
 import json as _json
 from sqlalchemy import asc as _asc
