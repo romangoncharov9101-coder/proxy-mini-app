@@ -159,7 +159,11 @@ function renderProxyItems(items) {
                         <div class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">
                             ${p.type} · ${(p.ip_type || 'ipv4').replace(/_/g, ' ')}
                         </div>
-                        ${(p.owner_username || p.owner_first_name) ? `<div class="text-[8px] font-bold text-blue-500 uppercase mt-0.5 truncate">👤 ${p.owner_username || '—'} · TG: ${p.owner_tg_id || '—'}</div>` : ''}
+                        ${(p.owner_username || p.owner_first_name) ? (() => {
+                            const isMe = CURRENT_USER && p.owner_username && CURRENT_USER.username === p.owner_username;
+                            const color = isMe ? 'text-blue-500' : 'text-black';
+                            return `<div class="text-[8px] font-bold ${color} uppercase mt-0.5 truncate">👤 ${p.owner_username || '—'} · ИМЯ: ${p.owner_first_name || '—'}</div>`;
+                        })() : ''}
                         ${noteHtml}
                     </div>
                 </div>

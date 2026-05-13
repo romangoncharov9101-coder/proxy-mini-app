@@ -11,9 +11,11 @@
 
 <script>
 let CURRENT_ROLE = null;
+let CURRENT_USER = null;
 
 function renderInterface(user) {
     CURRENT_ROLE = user.role;
+    CURRENT_USER = user;
 
     document.getElementById('page-loader')?.classList.add('hidden');
 
