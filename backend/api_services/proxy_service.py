@@ -144,10 +144,10 @@ async def get_proxy_page(
     proxy_items = []
     for proxy in items:
         owner_username = None
-        owner_tg_id = None
+        owner_first_name = None
         if proxy.owner:
             owner_username = proxy.owner.username
-            owner_first_name= proxy.owner.first_name
+            owner_first_name = proxy.owner.first_name
         # Создаём dict из proxy + owner fields
         from backend.database.schemas import ProxyListItem
         item = ProxyListItem(
