@@ -701,6 +701,13 @@ async def admin_get_countries(
         )
         result = await db.execute(stmt)
         all_regions = result.scalars().all()
+
+        settings_res = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        app_settings = settings_res.scalar_one_or_none()
+        allowed_ids = None
+        if app_settings and app_settings.allowed_area_ids:
+            allowed_ids = set(x.strip() for x in app_settings.allowed_area_ids.split(',') if x.strip())
+
         countries = [
             {
                 "id": r.id,
@@ -712,6 +719,7 @@ async def admin_get_countries(
                 "retail_price": float(r.retail_price) if r.retail_price else 0.0,
             }
             for r in all_regions
+            if allowed_ids is None or r.area_id in allowed_ids
         ]
     if search:
         search_val = search.lower().strip()
